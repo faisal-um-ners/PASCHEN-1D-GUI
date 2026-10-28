@@ -20,7 +20,7 @@ is installed automatically.
 
 ```bash
 git clone https://github.com/faisal-um-ners/PASCHEN-1D-Temp.git
-cd PASCHEN-1D
+cd PASCHEN-1D-Temp
 pip install -e ./studio                  # studio + all solver dependencies
 python -m paschen_studio gui             # graphical interface   (or simply: paschen-studio)
 ```
