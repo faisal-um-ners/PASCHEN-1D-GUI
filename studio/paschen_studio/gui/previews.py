@@ -291,6 +291,7 @@ class CircuitDiagram(QWidget):
             # room after it, so no label touches a neighbouring element
             right = name != shunts[0]
             self._shunt(p, name, x, top, gnd, label_left=not right)
+            last_shunt_x = x
             gap = step * (1.0 if right else 0.5)
             p.setPen(QPen(wire, 1.6))
             p.drawLine(QPointF(x, top), QPointF(x + gap, top))
@@ -301,11 +302,13 @@ class CircuitDiagram(QWidget):
             x = x2
             nodes.append((x, "V_gap"))
         if has_cext:
+            nx = x + step * 0.8
+            if len(shunts) > 1:                  # keep the Lp label (right of Lp) clear of the Cext label
+                nx = max(nx, last_shunt_x + 128)
             p.setPen(QPen(wire, 1.6))
-            p.drawLine(QPointF(x, top), QPointF(x + step * 0.8, top))
-            x += step * 0.8
-            # below the Lp label when both sit side by side
-            self._shunt(p, "C_ext", x, top, gnd, label_left=True, label_dy=48.0 if len(shunts) > 1 else 0.0)
+            p.drawLine(QPointF(x, top), QPointF(nx, top))
+            x = nx
+            self._shunt(p, "C_ext", x, top, gnd, label_left=True)
         p.setPen(QPen(wire, 1.6))
         p.drawLine(QPointF(x, top), QPointF(x + step * 0.8, top))
         x += step * 0.8
