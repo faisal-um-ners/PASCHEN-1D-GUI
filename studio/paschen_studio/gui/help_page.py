@@ -8,7 +8,7 @@ from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QListWidget, QListWidgetItem, QTextBrowser, QVBoxLayout,
                                QWidget)
 
-from .. import BIBTEX, PAPER_AUTHORS, PAPER_JOURNAL, PAPER_TITLE, PAPER_URL, REPO_URL, ARXIV_URL
+from .. import BIBTEX, PAPER_AUTHORS, PAPER_JOURNAL, PAPER_TITLE, PAPER_URL, REPO_URL, ARXIV_URL, STUDIO_REPO_URL
 from .. import solver as S
 from . import icons
 from . import theme as T
@@ -146,7 +146,7 @@ class HelpPage(QWidget):
         if key == "cite":
             md = (f"# Cite PASCHEN-1D\n\nIf you use PASCHEN-1D (and this studio) in published work, please cite\n\n"
                   f"> {PAPER_AUTHORS}, “{PAPER_TITLE}”, *{PAPER_JOURNAL}*.\n\n"
-                  f"* Journal article: <{PAPER_URL}>\n* arXiv preprint: <{ARXIV_URL}>\n* Source code: <{REPO_URL}>\n\n"
+                  f"* Journal article: <{PAPER_URL}>\n* arXiv preprint: <{ARXIV_URL}>\n* Solver source code: <{REPO_URL}>\n* Studio source code: <{STUDIO_REPO_URL}>\n\n"
                   f"```\n{BIBTEX}\n```\n")
             self.browser.setMarkdown(md)
             b = push("Copy BibTeX", "primary", icon_name="copy")

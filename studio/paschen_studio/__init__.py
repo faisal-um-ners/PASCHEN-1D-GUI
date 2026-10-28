@@ -28,6 +28,7 @@ PAPER_JOURNAL = "Computer Physics Communications (2026)"
 PAPER_URL = "https://www.sciencedirect.com/science/article/pii/S0010465526003863"
 ARXIV_URL = "https://arxiv.org/abs/2608.07721"
 REPO_URL = "https://github.com/pbis-umich/PASCHEN-1D"
+STUDIO_REPO_URL = "https://github.com/faisal-um-ners/PASCHEN-1D-Temp"
 
 BIBTEX = """@article{iqbal2026paschen1d,
   title   = {PASCHEN-1D: A one-dimensional fluid plasma solver with multi-mechanism

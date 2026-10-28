@@ -19,11 +19,13 @@ You need **Python 3.10 – 3.13** (3.12 recommended). Everything else (NumPy, Sc
 is installed automatically.
 
 ```bash
-git clone https://github.com/pbis-umich/PASCHEN-1D.git
-cd PASCHEN-1D
+git clone https://github.com/faisal-um-ners/PASCHEN-1D-Temp.git
+cd PASCHEN-1D-Temp
 pip install -e ./studio                  # studio + all solver dependencies
 python -m paschen_studio gui             # graphical interface   (or simply: paschen-studio)
 ```
+
+This repository contains an unmodified copy of the PASCHEN-1D solver ([pbis-umich/PASCHEN-1D](https://github.com/pbis-umich/PASCHEN-1D)) with the studio added in `studio/`, so one clone gives you both.
 
 **One-click alternative** (creates a private environment in `studio/.venv`, checks the installation with a
 1-second simulation and adds a launcher):
