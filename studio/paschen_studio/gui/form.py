@@ -5,7 +5,7 @@ import ast
 import math
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QBoxLayout, QCheckBox, QComboBox, QFileDialog, QGridLayout, QLabel, QLayout,
                                QLineEdit, QPushButton, QToolButton, QVBoxLayout, QWidget)
 
 from .. import advisor as A
@@ -17,6 +17,46 @@ from . import theme as T
 from .widgets import ChoiceCombo, FlowLayout, QuantityEdit, SectionHeader, ToggleSwitch, label
 
 INF_OK = {"circuit.C_s", "circuit.L_p"}
+
+
+class EditorBox(QWidget):
+    """Holds a field's editor and an optional action button ("Browse…", "Use bundled tables"). When the
+    settings panel is narrow the button moves below the editor instead of forcing sideways scrolling."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.lay = QBoxLayout(QBoxLayout.LeftToRight, self)
+        self.lay.setContentsMargins(0, 0, 0, 0)
+        self.lay.setSpacing(6)
+        self.lay.setSizeConstraint(QLayout.SetNoConstraint)
+
+    def _parts(self):
+        return [self.lay.itemAt(i).widget() for i in range(self.lay.count()) if self.lay.itemAt(i).widget()]
+
+    def _buttons(self):
+        return [w for w in self._parts() if isinstance(w, QPushButton)]
+
+    def _row_min(self) -> int:
+        ws = [w for w in self._parts() if not w.isHidden()]
+        return sum(max(w.minimumSizeHint().width(), w.minimumWidth()) for w in ws) + self.lay.spacing() * max(0, len(ws) - 1)
+
+    def minimumSizeHint(self):  # noqa: N802
+        if not self._buttons():
+            return super().minimumSizeHint()
+        h = super().minimumSizeHint().height()
+        w = max(max(x.minimumSizeHint().width(), x.minimumWidth()) for x in self._parts())
+        return QSize(w, h)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if not self._buttons():
+            return
+        want = QBoxLayout.LeftToRight if self.width() >= self._row_min() else QBoxLayout.TopToBottom
+        if self.lay.direction() != want:
+            self.lay.setDirection(want)
+            for b in self._buttons():
+                self.lay.setAlignment(b, Qt.AlignLeft if want == QBoxLayout.TopToBottom else Qt.AlignmentFlag(0))
+            self.updateGeometry()
 
 
 def _tooltip(path: str, fi, meta, default) -> str:
@@ -55,7 +95,7 @@ class FieldRow:
         self.reset.setObjectName("reset")
         self.reset.setIcon(icons.icon("reset", T.c("text3"), 14))
         self.reset.setIconSize(QSize(14, 14))
-        self.reset.setToolTip(f"Reset to the case default")
+        self.reset.setToolTip("Reset to the case default")
         self.reset.setCursor(Qt.PointingHandCursor)
         self.reset.clicked.connect(lambda: form.on_reset(path))
         self.help = QLabel()
@@ -71,10 +111,8 @@ class FieldRow:
         model = self.form.model
         val = model.value(path)
         commit = lambda v: self.form.on_change(path, v)  # noqa: E731
-        box = QWidget()
-        hl = QHBoxLayout(box)
-        hl.setContentsMargins(0, 0, 0, 0)
-        hl.setSpacing(6)
+        box = EditorBox()
+        hl = box.lay
         self.editor_container = box
         ed: QWidget
         if path in SC.TABLE_FIELDS and SC.TABLE_FIELDS[path] == "electron":
@@ -101,6 +139,8 @@ class FieldRow:
             ed.setInsertPolicy(QComboBox.NoInsert)
             for g, disp in S.known_gases():
                 ed.addItem(disp, g)
+            ed.setMinimumContentsLength(8)          # the list itself shows full names; the field stays compact
+            ed.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
             ed.setCurrentText(str(val))
             ed.activated.connect(lambda i, e=ed: commit(e.itemData(i) or e.currentText().strip()))
             ed.lineEdit().editingFinished.connect(lambda e=ed: self._commit_text(_combo_value(e)))
@@ -184,7 +224,7 @@ class FieldRow:
                 if isinstance(t.get("common_e_over_n_min_Td"), (int, float)) else ""
             combo.addItem(f"{t['basename']}   ·  {t.get('gas', '')}  ·  {t.get('lxcat_database', '')}  ·  {rng}",
                           t["basename"])
-        combo.setMinimumContentsLength(18)
+        combo.setMinimumContentsLength(12)
         combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
 
     def _commit_text(self, v):
@@ -322,7 +362,7 @@ class SettingsForm(QWidget):
             grid.setHorizontalSpacing(8)
             grid.setVerticalSpacing(3)
             grid.setColumnStretch(2, 1)
-            grid.setColumnMinimumWidth(1, 200 if not compact else 190)
+            grid.setColumnMinimumWidth(1, 160 if not compact else 150)
             r = 0
             rows = []
             for p in sec.paths:

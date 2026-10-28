@@ -15,7 +15,7 @@ from ..model import StudioModel
 from ..units import human_duration
 from . import icons
 from . import theme as T
-from .widgets import FlowLayout, chip, label, push
+from .widgets import ElidedLabel, FlowLayout, chip, label, push
 
 CASE_ICONS = {
     "config_case_nitrogen_pulsed_discharge": ("bolt", "#7c3aed"),
@@ -55,7 +55,9 @@ class CaseCard(QFrame):
         t.setFont(f)
         t.setWordWrap(True)
         tv.addWidget(t)
-        tv.addWidget(label(f"{info.module}.py", "faint"))
+        mod = ElidedLabel(f"{info.module}.py")         # long module names elide instead of widening the card
+        mod.setObjectName("faint")
+        tv.addWidget(mod)
         top.addLayout(tv, 1)
         v.addLayout(top)
         s = label(info.summary, "muted", wrap=True)
@@ -164,9 +166,11 @@ class HomePage(QWidget):
         # cases
         hdr = QHBoxLayout()
         hdr.addWidget(label("Start from a validated case", "h2"))
-        hdr.addStretch()
-        hdr.addWidget(label("Every case is a complete PASCHEN-1D configuration module. Open it, change what you "
-                            "need, run.", "muted"))
+        hdr.addSpacing(16)
+        sub = label("Every case is a complete PASCHEN-1D configuration module. Open it, change what you "
+                    "need, run.", "muted", wrap=True)
+        sub.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        hdr.addWidget(sub, 1)
         v.addLayout(hdr)
         self.grid = QGridLayout()
         self.grid.setSpacing(14)
@@ -226,21 +230,42 @@ class HomePage(QWidget):
         v.addLayout(bottom)
         sv, sd = S.solver_version()
         foot = label(f"{APP_NAME} {__version__}  ·  PASCHEN-1D {sv} ({sd})  ·  solver folder: {S.solver_root()}",
-                     "faint", selectable=True)
+                     "faint", wrap=True, selectable=True)
         v.addWidget(foot)
         v.addStretch()
         self._cards = []
+        self._ncols = 3
+        self._scroll = sc
         self.populate()
+
+    def _columns_for(self, width: int) -> int:
+        return 3 if width >= 3 * 300 + 28 else (2 if width >= 2 * 300 + 14 else 1)
+
+    def _place_cards(self):
+        for c in self._cards:
+            self.grid.removeWidget(c)
+        for i, card in enumerate(self._cards):
+            self.grid.addWidget(card, i // self._ncols, i % self._ncols)
+        for col in range(3):
+            self.grid.setColumnStretch(col, 1 if col < self._ncols else 0)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        n = self._columns_for(self._scroll.viewport().width() - 56)
+        if n != self._ncols:
+            self._ncols = n
+            self._place_cards()
 
     def populate(self):
         for c in self._cards:
+            self.grid.removeWidget(c)
+            c.hide()
             c.deleteLater()
         self._cards = []
         cases = S.list_cases()
-        for i, info in enumerate(cases):
-            card = CaseCard(info, self.openCase.emit, self.demoCase.emit)
-            self.grid.addWidget(card, i // 3, i % 3)
-            self._cards.append(card)
+        for info in cases:
+            self._cards.append(CaseCard(info, self.openCase.emit, self.demoCase.emit))
+        self._place_cards()
         self.refresh_recent()
 
     def refresh_recent(self):

@@ -75,8 +75,10 @@ class DeviceSchematic(QWidget):
         # dielectric layers
         l = float(v.get("geometry.l") or 0.0)
         L = float(v.get("geometry.L") or 1e-3)
+        dw = max(8.0, min(40.0, (l / (L + 2 * l)) * (right_x - left_x))) if l > 0 else 0.0
+        # free gas between the dielectric layers: all captions stay inside it
+        inner = QRectF(gas.left() + dw + 4, gas.top(), gas.width() - 2 * dw - 8, gas.height())
         if l > 0:
-            dw = max(8.0, min(40.0, (l / (L + 2 * l)) * (right_x - left_x)))
             diel = QColor("#38bdf8")
             diel.setAlpha(70)
             for r in (QRectF(left_x + ew, top, dw, bot - top), QRectF(right_x - ew - dw, top, dw, bot - top)):
@@ -84,8 +86,8 @@ class DeviceSchematic(QWidget):
                 p.setPen(QPen(QColor("#0ea5e9"), 1, Qt.DashLine))
                 p.drawRect(r)
             p.setPen(text2)
-            p.drawText(QRectF(left_x + ew, bot + 2, 260, 16), Qt.AlignLeft,
-                       f"dielectric {_q(l, 'm')}, εr = {float(v.get('geometry.eps_r', 1)):.3g}")
+            p.drawText(QRectF(left_x, bot + 12, right_x - left_x, 16), Qt.AlignCenter,
+                       f"dielectric layers {_q(l, 'm')} each, εr = {float(v.get('geometry.eps_r', 1)):.3g}")
         # electrodes
         for x, name in ((left_x, "anode"), (right_x - ew, "cathode")):
             r = QRectF(x, top - 10, ew, bot - top + 20)
@@ -110,7 +112,7 @@ class DeviceSchematic(QWidget):
         p.drawText(QRectF(left_x - 60, 26, 140, 16), Qt.AlignCenter, "φ = V_gap(t)")
         p.drawText(QRectF(right_x - 80, 26, 140, 16), Qt.AlignCenter, "φ = 0 (ground)")
         # dimension arrow
-        y = bot + 26
+        y = bot + 34 if l > 0 else bot + 26
         p.setPen(QPen(text2, 1.2))
         p.drawLine(QPointF(left_x + ew, y), QPointF(right_x - ew, y))
         for xa, d in ((left_x + ew, 1), (right_x - ew, -1)):
@@ -127,16 +129,22 @@ class DeviceSchematic(QWidget):
         pT = float(v.get("plasma_state.p_Torr") or 0)
         gas_name = str(v.get("plasma_state.gas", ""))
         p.setPen(text)
-        cap = f"{gas_name.capitalize()}  ·  {pT:.4g} Torr  ·  pd = {pT * L * 100:.3g} Torr·cm"
-        p.drawText(QRectF(gas.left(), gas.top() + 6, gas.width(), 18), Qt.AlignCenter, cap)
+        parts = [gas_name.capitalize(), f"{pT:.4g} Torr", f"pd = {pT * L * 100:.3g} Torr·cm"]
+        cap = "  ·  ".join(x.replace(" ", "\u00a0") for x in parts)     # wrap only between the items
+        cap_r = p.boundingRect(QRectF(inner.left(), inner.top() + 6, inner.width(), 200),
+                               Qt.AlignHCenter | Qt.TextWordWrap, cap)
+        p.drawText(QRectF(inner.left(), inner.top() + 6, inner.width(), cap_r.height()),
+                   Qt.AlignHCenter | Qt.TextWordWrap, cap)
         n0 = float(v.get("plasma_state.n0") or 0)
         p.setPen(text2)
-        p.drawText(QRectF(gas.left(), gas.top() + 24, gas.width(), 16), Qt.AlignCenter,
+        p.drawText(QRectF(inner.left(), inner.top() + 8 + cap_r.height(), inner.width(), 16), Qt.AlignCenter,
                    f"n₀ = {n0:.3g} m⁻³" if n0 > 0 else "no initial plasma (n₀ = 0)")
         # transport arrows
         cy = gas.center().y()
-        self._arrow(p, QPointF(gas.right() - 30, cy - 18), QPointF(gas.left() + 30, cy - 18), e_col, "electrons → anode")
-        self._arrow(p, QPointF(gas.left() + 30, cy + 18), QPointF(gas.right() - 30, cy + 18), i_col, "ions → cathode")
+        self._arrow(p, QPointF(inner.right() - 20, cy - 18), QPointF(inner.left() + 20, cy - 18), e_col,
+                    "electrons → anode")
+        self._arrow(p, QPointF(inner.left() + 20, cy + 18), QPointF(inner.right() - 20, cy + 18), i_col,
+                    "ions → cathode")
         # emission
         mechs_c = SC.emission_mechanisms(v, "cathode")
         mechs_a = SC.emission_mechanisms(v, "anode")
@@ -150,17 +158,18 @@ class DeviceSchematic(QWidget):
         yb = bot - 18 - 16 * len(lines)
         for i, t in enumerate(lines):
             yy = yb + 16 * i
+            xr = inner.right() + 2                    # emitting surface (dielectric face or bare cathode)
             p.setPen(QPen(e_col, 1.6))
-            p.drawLine(QPointF(right_x - ew - 4, yy + 8), QPointF(right_x - ew - 22, yy + 8))
-            p.drawLine(QPointF(right_x - ew - 22, yy + 8), QPointF(right_x - ew - 16, yy + 4))
-            p.drawLine(QPointF(right_x - ew - 22, yy + 8), QPointF(right_x - ew - 16, yy + 12))
+            p.drawLine(QPointF(xr, yy + 8), QPointF(xr - 18, yy + 8))
+            p.drawLine(QPointF(xr - 18, yy + 8), QPointF(xr - 12, yy + 4))
+            p.drawLine(QPointF(xr - 18, yy + 8), QPointF(xr - 12, yy + 12))
             p.setPen(text2)
-            p.drawText(QRectF(right_x - ew - 220, yy, 194, 16), Qt.AlignRight | Qt.AlignVCenter, t)
+            p.drawText(QRectF(inner.left(), yy, inner.width() - 24, 16), Qt.AlignRight | Qt.AlignVCenter, t)
         if mechs_a:
             for i, m in enumerate(mechs_a):
                 yy = bot - 34 - 16 * i
                 p.setPen(text2)
-                p.drawText(QRectF(left_x + ew + 26, yy, 200, 16), Qt.AlignLeft | Qt.AlignVCenter,
+                p.drawText(QRectF(inner.left() + 6, yy, inner.width() - 12, 16), Qt.AlignLeft | Qt.AlignVCenter,
                            f"anode: {names[m]}")
         if "quantum_pulse" in mechs_c:
             # laser beam entering the gap from above and hitting the cathode face
@@ -184,7 +193,7 @@ class DeviceSchematic(QWidget):
             p.setPen(text2)
             f.setPointSizeF(fs - 1)
             p.setFont(f)
-            p.drawText(QRectF(gas.left(), gas.bottom() - 22, gas.width(), 16), Qt.AlignCenter,
+            p.drawText(QRectF(inner.left(), cy + 30, inner.width(), 34), Qt.AlignHCenter | Qt.TextWordWrap,
                        "impact ionization" + (" + recombination" if v.get("boundary.enable_recombination_sink") else ""))
         p.end()
 
@@ -513,8 +522,9 @@ def paschen_spec(model) -> tuple[FigureSpec, str]:
     return FigureSpec([ax]), note
 
 
-def transport_spec(model) -> tuple[FigureSpec, str]:
-    """α/N and μN versus E/N from the solver's own closures (equations or tables)."""
+def transport_spec(model, narrow: bool = False) -> tuple[FigureSpec, str]:
+    """α/N and μN versus E/N from the solver's own closures (equations or tables). ``narrow`` stacks the two
+    panels vertically so they stay readable in a slim preview pane."""
     note = ""
     axes = []
     try:
@@ -549,13 +559,15 @@ def transport_spec(model) -> tuple[FigureSpec, str]:
         en0 = est["E_over_N_Td"]
         for a in (a1, a2):
             if math.isfinite(en0) and en0 > 0:
-                a.marks.append(Mark("vline", x=en0, text=f"mean applied E/N ≈ {en0:.3g} Td", color=T.c("text3")))
+                a.marks.append(Mark("vline", x=en0, text=f"applied E/N ≈ {en0:.3g} Td", color=T.c("text3")))
         axes = [a1, a2]
         src_e = ("BOLSIG+ table" if "local_field_approximation.electron_swarm_data_path" in
                  SC.electron_tables_in_use(model.values()) else "physics.py equations")
         note = f"Curves come from the solver's own closures (electrons: {src_e}). " + note
     except Exception as exc:
         axes = [AxesSpec(empty_text=f"Transport preview unavailable: {exc}")]
+    if narrow and len(axes) > 1:
+        return FigureSpec(axes, rows=len(axes), cols=1), note
     return FigureSpec(axes, rows=1, cols=len(axes)), note
 
 
@@ -641,11 +653,19 @@ class GraphicsPanel(QWidget):
                 self.paschen.set_spec(spec, keep_view=False)
                 self.paschen_note.setText(note)
             elif name == "Transport":
-                spec, note = transport_spec(self.model)
+                self._transport_narrow = self.width() < 560
+                spec, note = transport_spec(self.model, narrow=self._transport_narrow)
                 self.transport.set_spec(spec, keep_view=False)
                 self.transport_note.setText(note)
         except Exception as exc:  # pragma: no cover - previews must never break the editor
             self.paschen_note.setText(f"Preview error: {exc}")
+
+    def resizeEvent(self, e):  # noqa: N802
+        super().resizeEvent(e)
+        narrow = self.width() < 560
+        if getattr(self, "_transport_narrow", None) not in (None, narrow):
+            self._dirty.add("Transport")            # re-layout the transport panels (side by side ⇄ stacked)
+            self._timer.start()
 
     def restyle(self):
         for c in (self.wave, self.paschen, self.transport):

@@ -35,8 +35,7 @@ dev = ["pytest>=7.4"]
 all = ["jupyterlab>=4.0", "ipykernel>=6.0", "pytest>=7.4"]
 
 [project.urls]
-Homepage = "https://github.com/faisal-um-ners/PASCHEN-1D-Temp"
-Solver = "https://github.com/pbis-umich/PASCHEN-1D"
+Homepage = "https://github.com/pbis-umich/PASCHEN-1D"
 Paper = "https://www.sciencedirect.com/science/article/pii/S0010465526003863"
 
 [project.scripts]

@@ -229,7 +229,7 @@ def averaged_spec(rd: RunData, quantities, t0: float, t1: float, x_unit="auto", 
         if not qs:
             continue
         unit = SC.quantity_unit(qs[0])
-        ax = AxesSpec(title=f"{title} – average over {t0 / tsc:.4g}–{t1 / tsc:.4g} {tu} ({sel.size} snapshots)",
+        ax = AxesSpec(title=f"{title} (time-averaged)",
                       xlabel=f"x [{xu}]", ylabel=(SC.quantity_label(qs[0]) if len(qs) == 1 else title.lower())
                       + (f" [{unit}]" if unit else ""),
                       yscale=("log" if (title == "Densities" and log_density) else "linear"))
@@ -241,4 +241,6 @@ def averaged_spec(rd: RunData, quantities, t0: float, t1: float, x_unit="auto", 
         axes.append(ax)
     n = len(axes)
     cols = 1 if n == 1 else 2
-    return FigureSpec(axes, rows=int(math.ceil(n / cols)), cols=cols)
+    # the window goes in one figure title so the panel titles stay short enough for narrow windows
+    return FigureSpec(axes, rows=int(math.ceil(n / cols)), cols=cols,
+                      suptitle=f"Average over {t0 / tsc:.4g}–{t1 / tsc:.4g} {tu}  ·  {sel.size} snapshots")

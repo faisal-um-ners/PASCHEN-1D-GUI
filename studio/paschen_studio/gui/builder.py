@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import math
-import re
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter,
@@ -19,7 +18,7 @@ from . import icons
 from . import theme as T
 from .form import SettingsForm
 from .previews import GraphicsPanel
-from .widgets import Collapsible, StatTile, icon_button, label, push
+from .widgets import Collapsible, GuideText, StatTile, icon_button, label, push
 
 OVERVIEW = "__overview__"
 
@@ -40,32 +39,6 @@ def pane(title: str = "", obj: str = "pane"):
     hl.addStretch()
     v.addWidget(head)
     return f, v, hl, t
-
-
-def md_to_html(md: str) -> str:
-    """Tiny markdown subset (headings, bullets, code, bold) for guide snippets from config.py."""
-    out = []
-    in_code = False
-    for ln in md.splitlines():
-        if ln.strip().startswith("```"):
-            out.append("</pre>" if in_code else "<pre style='background:rgba(127,127,127,0.12);padding:6px;'>")
-            in_code = not in_code
-            continue
-        if in_code:
-            out.append(ln.replace("<", "&lt;"))
-            continue
-        s = ln.replace("<", "&lt;")
-        s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
-        s = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", s)
-        if s.startswith("### "):
-            continue
-        if s.strip().startswith("- "):
-            out.append("&nbsp;&nbsp;• " + s.strip()[2:] + "<br>")
-        elif not s.strip():
-            out.append("<br>")
-        else:
-            out.append(s + " ")
-    return "".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -370,9 +343,11 @@ class ModelPage(QWidget):
         mv.addWidget(iw)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         mv.addWidget(self.scroll, 1)
         mid.setMinimumWidth(420)
+        self._mid = mid
+        mid.installEventFilter(self)
         self.hsplit.addWidget(mid)
 
         # ---- graphics ----
@@ -409,6 +384,26 @@ class ModelPage(QWidget):
         self._check_timer.setSingleShot(True)
         self._check_timer.setInterval(700)
         self._check_timer.timeout.connect(lambda: self.run_check(deep=True))
+
+    # -- header fitting -----------------------------------------------------------
+    def eventFilter(self, obj, ev):  # noqa: N802
+        if obj is getattr(self, "_mid", None) and ev.type() == QEvent.Resize:
+            QTimer.singleShot(0, self._fit_mid_header)
+        return super().eventFilter(obj, ev)
+
+    def _fit_mid_header(self):
+        """Show the block title in full; drop the button captions (icons + tooltips stay) when space is short."""
+        btns = [b for b in (self.b_adv, self.b_inact, self.b_reset) if b.isVisible()]
+        if not btns:
+            return
+        fm = self.mid_title.fontMetrics()
+        title_w = fm.horizontalAdvance(self.mid_title.text()) + 60          # icon, margins, spacing
+        full = sum(b.fontMetrics().horizontalAdvance(b.text()) + 44 for b in btns)
+        compact = title_w + full > self._mid.width()
+        style = Qt.ToolButtonIconOnly if compact else Qt.ToolButtonTextBesideIcon
+        for b in btns:
+            if b.toolButtonStyle() != style:
+                b.setToolButtonStyle(style)
 
     # -- model -------------------------------------------------------------------
     def set_model(self, model, workspace=None):
@@ -528,6 +523,7 @@ class ModelPage(QWidget):
             b.setVisible(True)
         title = SC.GROUP_TITLES.get(g, SC.humanize(g))
         self.mid_title.setText(title)
+        QTimer.singleShot(0, self._fit_mid_header)
         self.mid_icon.setPixmap(icons.pixmap(SC.GROUP_ICONS.get(g, "dot"), T.c("accent"), 18))
         self.intro.setText(SC.GROUP_INTRO.get(g, self.model.schema.groups[g].doc))
         active, why = SC.group_active(g, self.model.values())
@@ -544,16 +540,12 @@ class ModelPage(QWidget):
         bl.addWidget(self.form)
         guide = self.model.schema.groups[g].guide
         if guide:
-            col = Collapsible("About this block (from the solver's configuration guide)", False)
-            tb = QLabel(md_to_html(guide))
-            tb.setWordWrap(True)
-            tb.setObjectName("muted")
-            tb.setTextFormat(Qt.RichText)
-            tb.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            col.body_lay.addWidget(tb)
+            col = Collapsible("Learn more", False)
+            col.btn.setToolTip("Background notes from the PASCHEN-1D configuration guide")
+            col.body_lay.addWidget(GuideText(guide))
             bl.addSpacing(8)
             bl.addWidget(col)
-        bl.addStretch()
+        bl.addStretch(1)                       # extra height goes below the content, not inside the form
         self.scroll.setWidget(body)
         self.graphics.show_for_group(g)
 

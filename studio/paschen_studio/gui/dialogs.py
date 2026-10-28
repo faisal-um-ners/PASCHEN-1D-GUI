@@ -318,7 +318,7 @@ class AboutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"About {APP_NAME}")
-        self.setMinimumWidth(600)
+        self.setMinimumWidth(680)
         v = QVBoxLayout(self)
         top = QHBoxLayout()
         lg = QLabel()
@@ -337,7 +337,11 @@ class AboutDialog(QDialog):
         bib = QPlainTextEdit(BIBTEX)
         bib.setReadOnly(True)
         bib.setObjectName("console")
-        bib.setMaximumHeight(170)
+        bib.setLineWrapMode(QPlainTextEdit.NoWrap)      # BibTeX keeps its layout; long lines scroll in the box
+        bib.ensurePolished()
+        n_lines = BIBTEX.strip("\n").count("\n") + 1
+        bib.setFixedHeight(int(bib.fontMetrics().lineSpacing() * n_lines + 2 * bib.document().documentMargin()
+                               + bib.frameWidth() * 2 + 30))
         v.addWidget(bib)
         h = QHBoxLayout()
         for text, url, ic in (("Paper", PAPER_URL, "book"), ("arXiv", ARXIV_URL, "external"),

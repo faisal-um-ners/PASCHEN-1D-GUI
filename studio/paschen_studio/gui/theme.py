@@ -211,6 +211,9 @@ QTabBar::tab:selected {{ color: {t['accent']}; border-bottom: 2px solid {t['acce
 /* ---------- misc ---------- */
 QScrollArea {{ background: transparent; border: none; }}
 QScrollArea > QWidget > QWidget {{ background: transparent; }}
+QScrollArea#codeBlock {{ background: {t['surface3']}; border: 1px solid {t['border']}; border-radius: 6px; }}
+QScrollArea#codeBlock > QWidget {{ background: transparent; }}
+#codeText {{ color: {t['text']}; background: transparent; }}
 QSplitter::handle {{ background: transparent; }}
 QSplitter::handle:horizontal {{ width: 8px; }}
 QSplitter::handle:vertical {{ height: 8px; }}

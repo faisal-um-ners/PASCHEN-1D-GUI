@@ -261,7 +261,7 @@ class MainWindow(QMainWindow):
         act(m, "Reset all settings to the case defaults", self.reset_all, None, "reset")
         r = mb.addMenu("&Run")
         act(r, "Run", lambda: self.run_current(), "F5", "play")
-        act(r, "Quick test run", lambda: self.run_current(test=True), "Shift+F5", "flask")
+        act(r, "Test run", lambda: self.run_current(test=True), "Shift+F5", "flask")
         act(r, "Parameter sweep…", self.sweep, "Ctrl+Shift+R", "sweep")
         r.addSeparator()
         act(r, "Show simulation queue", lambda: self.go(2), None, "queue")

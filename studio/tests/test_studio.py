@@ -178,4 +178,43 @@ def test_gui_smoke():
         app.processEvents()
     w.model_page.select_group("emission")
     w.model_page.focus_setting("circuit.R0")
+    for key in ("quickstart", "guide", "tutorial", "readme", "ions", "shortcuts", "cite"):
+        w.show_help(key)
+        app.processEvents()
+        assert w.help.browser.document().toPlainText().strip()
+    w.help.find.edit.setText("PASCHEN")
+    assert w.help.find.matches
     w.close()
+
+
+def test_doc_rendering_keeps_text_after_images():
+    """Qt's markdown reader drops text after raw HTML; the help viewer must not."""
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from paschen_studio.gui.app import setup_application
+    setup_application(theme_name="light")
+    from paschen_studio.gui.help_page import DocBrowser, clean_markdown
+    md = "# T\n\ntext before\n\n<img src=\"images/x.png\" width=\"900\" alt=\"X\">\n\n**after** the image\n\n```\ncode line\n```\n"
+    assert "<img" not in clean_markdown(md) and "![X](images/x.png)" in clean_markdown(md)
+    b = DocBrowser()
+    b.show_markdown(md, STUDIO / "docs")
+    text = b.document().toPlainText()
+    assert "after the image" in text and "code line" in text
+    guide = (STUDIO / "docs" / "USER_GUIDE.md").read_text(encoding="utf-8")
+    b.show_markdown(guide, STUDIO / "docs")
+    assert "Tree (left)" in b.document().toPlainText()
+    assert len(b.headings) > 5
+
+
+def test_guide_text_wraps_and_lists():
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from paschen_studio.gui.app import setup_application
+    setup_application(theme_name="light")
+    from paschen_studio.gui.widgets import GuideText, md_to_html, CodeBlock
+    html = md_to_html("### CircuitConfig\n\nPara one\ncontinues.\n\n- item one\n  continues here\n- item two\n\nAfter list.")
+    assert "CircuitConfig" not in html
+    assert html.count("<li") == 2 and "continues here" in html and "<p" in html
+    g = GuideText("Intro\n\n```\nV_app(t) -- R0 -- V_node -- R_m -- V_gap -- a very long diagram line\n```\n\nEnd.")
+    blocks = g.findChildren(CodeBlock)
+    assert len(blocks) == 1 and blocks[0].minimumSizeHint().width() <= 60

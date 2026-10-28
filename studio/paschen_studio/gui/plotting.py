@@ -21,7 +21,7 @@ from PySide6.QtCore import QSize, Qt, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QGuiApplication, QImage  # noqa: E402
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,  # noqa: E402
                                QFileDialog, QFormLayout, QHBoxLayout, QLabel, QMenu, QSizePolicy,
-                               QSpinBox, QVBoxLayout, QWidget)
+                               QSpinBox, QToolButton, QVBoxLayout, QWidget)
 
 from . import theme as T  # noqa: E402
 from .widgets import icon_button, label  # noqa: E402
@@ -141,7 +141,19 @@ def _draw_axes(ax, spec: AxesSpec, fig, publication: bool, colors: list[str]):
         if m.kind == "vline" and m.x is not None:
             ax.axvline(m.x, color=col, linestyle=m.style, linewidth=1.0)
             if m.text:
-                ax.annotate(m.text, (m.x, 1.0), xycoords=("data", "axes fraction"), xytext=(3, -12),
+                # label on the side of the line with more room, so it is never cut off at the axes edge
+                xs = [np.asarray(s_.x, float) for s_ in spec.series if getattr(s_, "x", None) is not None]
+                xs = np.concatenate([a[np.isfinite(a)] for a in xs]) if xs else np.array([])
+                right_half = False
+                if xs.size:
+                    lo, hi = float(np.min(xs)), float(np.max(xs))
+                    if spec.xscale == "log" and lo > 0 and m.x > 0:
+                        lo, hi, xm = math.log10(lo), math.log10(hi), math.log10(m.x)
+                    else:
+                        xm = m.x
+                    right_half = hi > lo and (xm - lo) / (hi - lo) > 0.6
+                ax.annotate(m.text, (m.x, 1.0), xycoords=("data", "axes fraction"),
+                            xytext=(-3 if right_half else 3, -12), ha="right" if right_half else "left",
                             textcoords="offset points", fontsize=8, color=col)
         elif m.kind == "hline" and m.y is not None:
             ax.axhline(m.y, color=col, linestyle=m.style, linewidth=1.0)
@@ -341,7 +353,17 @@ class PlotCanvas(QWidget):
         self.b_exp = icon_button("image", "Export figure (PNG / PDF / SVG)…", size=16)
         self.b_csv = icon_button("csv", "Export plotted data as CSV…", size=16)
         self.b_copy = icon_button("copy", "Copy image to clipboard", size=16)
-        for b in (self.b_home, self.b_pan, self.b_zoom, self.b_log, self.b_exp, self.b_csv, self.b_copy):
+        # in narrow panels the three export buttons fold into one menu button
+        self.b_more = icon_button("export", "Export or copy this plot", size=16)
+        more = QMenu(self.b_more)
+        more.addAction("Export figure (PNG / PDF / SVG)…", self.export_dialog)
+        more.addAction("Export plotted data as CSV…", self.export_csv)
+        more.addAction("Copy image to clipboard", self.copy_image)
+        self.b_more.setMenu(more)
+        self.b_more.setPopupMode(QToolButton.InstantPopup)
+        self.b_more.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
+        self.b_more.setVisible(False)
+        for b in (self.b_home, self.b_pan, self.b_zoom, self.b_log, self.b_exp, self.b_csv, self.b_copy, self.b_more):
             hb.addWidget(b)
         self.b_log.setVisible(log_toggle)
         self.b_home.clicked.connect(self.reset_view)
@@ -360,6 +382,14 @@ class PlotCanvas(QWidget):
         self.canvas.mpl_connect("button_release_event", lambda e: self._mark_user_view())
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._menu)
+
+    def resizeEvent(self, e):  # noqa: N802
+        super().resizeEvent(e)
+        compact = self.width() < 540
+        if self.b_more.isVisible() != compact:
+            for b in (self.b_exp, self.b_csv, self.b_copy):
+                b.setVisible(not compact)
+            self.b_more.setVisible(compact)
 
     # -- API ------------------------------------------------------------------
     def set_title(self, t: str):

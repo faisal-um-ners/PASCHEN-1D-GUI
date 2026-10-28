@@ -48,7 +48,7 @@ can always see exactly what you changed (Model Builder → **Overview**).
 
 ## 4. Model Builder
 
-<img src="images/model_builder.png" width="900" alt="Model Builder">
+![Model Builder](images/model_builder.png)
 
 **Tree (left).** The solver's configuration blocks, grouped as *Study*, *Plasma physics*, *Drive & surfaces*,
 *Output*. A `•N` badge counts changed settings; grey blocks are not used by your current choices (hover for
@@ -68,7 +68,8 @@ name, meaning or solver comment.
   **Advanced** shows expert knobs (Picard iteration, limiter θ, quadrature grids …).
 * Derived values appear under key fields: dt and run time under *Nt*, dx under *Nx*, pd and C_gap under *L*,
   N and pd under *p*, E/N under *V_peak*, number of snapshots and output size under *save_every* …
-* **About this block** shows the guide text from the solver's `config.py`.
+* **Learn more** (below the settings) shows background notes from the solver's configuration guide;
+  long notes wrap to the panel width and diagrams scroll inside their own box.
 * Special editors: electron swarm tables (all 42 bundled BOLSIG+ tables, the current gas first), the **ion
   transport library** (818 matched LXCat mobility/diffusion pairs + mobility-only datasets, with plots), and
   **Use bundled tables** for any gas.
@@ -87,7 +88,7 @@ run-time estimate, output size, breakdown estimate and the table of changed sett
 
 ## 5. Simulate
 
-<img src="images/simulate.png" width="900" alt="Live monitor">
+![Live monitor](images/simulate.png)
 
 * **Run** (`F5`) runs the model; **Test run** (`Shift+F5`) runs 2 % of the time steps with the same dt –
   ideal to verify a new setup. Runs are queued; set *Preferences → Simultaneous runs* to use more cores.
@@ -102,7 +103,7 @@ run-time estimate, output size, breakdown estimate and the table of changed sett
 
 ## 6. Results
 
-<img src="images/results.png" width="900" alt="Results browser">
+![Results browser](images/results.png)
 
 The list contains Studio runs and any PASCHEN-1D run folder (notebook/script runs) in the workspace, the
 PASCHEN-1D folder and any extra folders (folder button or *Preferences*). Sweeps are grouped.

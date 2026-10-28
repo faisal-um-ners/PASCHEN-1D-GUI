@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication
+from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication, QIcon
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox,
                                QScrollArea, QSlider, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTabWidget,
@@ -23,7 +23,7 @@ from .builder import pane
 from .plotting import AxesSpec, FigureSpec, PlotCanvas, Series
 from .runplots import (CURRENTS, NUMERICS, SPATIAL_GROUPS, VOLTAGES, averaged_spec, compare_spec, history_spec,
                        profiles_spec, spacetime_spec, time_scale)
-from .widgets import QuantityEdit, StatTile, badge, icon_button, label, push
+from .widgets import ElidedLabel, FlowLayout, QuantityEdit, StatTile, badge, icon_button, label, push
 
 
 def _fmt_metric(key, val):
@@ -83,11 +83,11 @@ class RunView(QWidget):
         v.setContentsMargins(16, 12, 16, 12)
         v.setSpacing(8)
         hdr = QHBoxLayout()
-        self.title = label("", "h3")
-        hdr.addWidget(self.title)
         self.bdg = badge("finished")
         hdr.addWidget(self.bdg)
-        hdr.addStretch()
+        self.title = ElidedLabel("", mode=Qt.ElideRight)    # long run titles elide; full title in the tooltip
+        self.title.setObjectName("h3")
+        hdr.addWidget(self.title, 1)
         self.b_load = push("Open model in builder", icon_name="model")
         self.b_load.setToolTip("Load the exact settings of this run into the Model Builder")
         self.b_load.clicked.connect(self._load_model)
@@ -99,6 +99,11 @@ class RunView(QWidget):
         self.b_del.clicked.connect(self._delete)
         for b in (self.b_load, self.b_folder, self.b_csv, self.b_del):
             hdr.addWidget(b)
+        self._text_buttons = [(b, b.text()) for b in (self.b_load, self.b_folder, self.b_csv)]
+        for b, t in self._text_buttons:
+            if not b.toolTip():
+                b.setToolTip(t.replace("&&", "&"))
+        self._compact = None
         v.addLayout(hdr)
         self.sub = label("", "hint", selectable=True)
         v.addWidget(self.sub)
@@ -113,6 +118,19 @@ class RunView(QWidget):
         self.tabs.currentChanged.connect(lambda _: self._render_current())
         self._play = QTimer(self)
         self._play.timeout.connect(self._advance)
+
+    def resizeEvent(self, e):  # noqa: N802
+        super().resizeEvent(e)
+        compact = self.width() < 1000          # narrow window: icon-only buttons, tabs without icons
+        if compact == self._compact:
+            return
+        self._compact = compact
+        for b, t in self._text_buttons:
+            b.setText("" if compact else t)
+        if not hasattr(self, "_tab_icons"):
+            self._tab_icons = [self.tabs.tabIcon(i) for i in range(self.tabs.count())]
+        for i, ic in enumerate(self._tab_icons):
+            self.tabs.setTabIcon(i, QIcon() if compact else ic)
 
     # -- tabs -----------------------------------------------------------------
     def _build_summary(self):
@@ -185,7 +203,8 @@ class RunView(QWidget):
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 8, 0, 0)
-        top = QHBoxLayout()
+        top_w = QWidget()
+        top = FlowLayout(top_w, 14, 6)            # wraps onto a second line in narrow windows
         self.p_group = {}
         for title, qs, _, _ in SPATIAL_GROUPS:
             cb = QCheckBox(title)
@@ -193,16 +212,20 @@ class RunView(QWidget):
             cb.toggled.connect(lambda _=None: self._render_profiles())
             self.p_group[title] = (cb, qs)
             top.addWidget(cb)
-        top.addStretch()
         self.p_xunit = QComboBox()
         self.p_xunit.addItems(["auto", "mm", "cm", "m", "µm"])
         self.p_xunit.currentIndexChanged.connect(lambda _: self._render_profiles())
-        top.addWidget(label("x unit"))
-        top.addWidget(self.p_xunit)
+        xw = QWidget()
+        xl = QHBoxLayout(xw)
+        xl.setContentsMargins(0, 0, 0, 0)
+        xl.setSpacing(6)
+        xl.addWidget(label("x unit"))
+        xl.addWidget(self.p_xunit)
+        top.addWidget(xw)
         self.p_lin = QCheckBox("Linear densities")
         self.p_lin.toggled.connect(lambda _: self._render_profiles())
         top.addWidget(self.p_lin)
-        v.addLayout(top)
+        v.addWidget(top_w)
         ctl = QHBoxLayout()
         self.b_play = icon_button("play", "Play / pause the animation", size=18)
         self.b_play.clicked.connect(self._toggle_play)
@@ -237,6 +260,8 @@ class RunView(QWidget):
         v.setContentsMargins(0, 8, 0, 0)
         top = QHBoxLayout()
         self.st_q = QComboBox()
+        self.st_q.setMinimumContentsLength(20)
+        self.st_q.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.st_q.currentIndexChanged.connect(lambda _: self._render_spacetime())
         self.st_log = QCheckBox("Logarithmic colour scale")
         self.st_log.setChecked(True)
@@ -249,8 +274,9 @@ class RunView(QWidget):
         top.addWidget(self.st_log)
         top.addWidget(label("Colours"))
         top.addWidget(self.st_cmap)
-        top.addStretch()
-        top.addWidget(label("Click the map to open that instant in Profiles", "hint"))
+        tip = label("Click the map to open that instant in Profiles", "hint", wrap=True)
+        tip.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        top.addWidget(tip, 1)
         v.addLayout(top)
         self.st_plot = PlotCanvas("", export_name="spacetime", log_toggle=False)
         self.st_plot.clicked.connect(self._st_click)
@@ -752,6 +778,13 @@ class SweepView(QWidget):
             except (TypeError, ValueError):
                 pass
         unit = METRIC_LABELS.get(k, ("", ""))[1]
+        big = max((abs(y) for y in ys if math.isfinite(y)), default=0.0)
+        if big > 0 and unit in ("A", "s", "C", "V"):     # engineering prefix instead of a ×10⁻⁵ axis offset
+            for pre, sc in (("p", 1e-12), ("n", 1e-9), ("µ", 1e-6), ("m", 1e-3), ("", 1.0), ("k", 1e3), ("M", 1e6)):
+                if big < 1000 * sc or pre == "M":
+                    break
+            ys = [y / sc for y in ys]
+            unit = pre + unit
         ax = AxesSpec(title=f"{METRIC_LABELS.get(k, (k,))[0]} vs {self.param.split('.')[-1]}",
                       xlabel=SC.meta_for(self.param).label + (f" [{SC.meta_for(self.param).unit}]" if SC.meta_for(self.param).unit else ""), ylabel=f"{METRIC_LABELS.get(k, (k,))[0]}" + (f" [{unit}]" if unit else ""),
                       xscale="log" if self.logx.isChecked() else "linear", legend=False)
@@ -805,11 +838,12 @@ class ResultsPage(QWidget):
         sl.addWidget(self.search)
         lv.addWidget(sw)
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Run", "Status", "Date"])
+        self.tree.setHeaderLabels(["Run", "Date"])
         self.tree.setRootIsDecorated(True)
+        self.tree.setTextElideMode(Qt.ElideMiddle)        # keep the distinctive end of long run names visible
         self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.tree.header().setStretchLastSection(False)
         self.tree.itemSelectionChanged.connect(self._select)
         self.tree.itemChanged.connect(self._checked)
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -824,7 +858,7 @@ class ResultsPage(QWidget):
         cmp_btn.clicked.connect(self._show_compare)
         fl.addWidget(cmp_btn)
         lv.addWidget(fw)
-        left.setMinimumWidth(330)
+        left.setMinimumWidth(360)
         sp.addWidget(left)
         right = QFrame()
         right.setObjectName("pane")
@@ -857,7 +891,7 @@ class ResultsPage(QWidget):
         self.sweep_view = SweepView(self)
         self.stack.addWidget(self.sweep_view)
         sp.addWidget(right)
-        sp.setSizes([380, 1100])
+        sp.setSizes([430, 1000])
         sp.setStretchFactor(1, 1)
         self._checked_paths: set[str] = set()
 
@@ -884,7 +918,7 @@ class ResultsPage(QWidget):
         sel_item = None
         for sid, runs in sweeps.items():
             sw = runs[0].studio.get("sweep", {})
-            it = QTreeWidgetItem([f"Sweep · {sw.get('label') or sw.get('parameter')}", f"{len(runs)} runs", ""])
+            it = QTreeWidgetItem([f"Sweep · {sw.get('label') or sw.get('parameter')}", f"{len(runs)} runs"])
             it.setIcon(0, icons.icon("sweep", T.c("accent"), 16))
             it.setData(0, Qt.UserRole, ("sweep", sid))
             f = it.font(0)
@@ -907,7 +941,8 @@ class ResultsPage(QWidget):
 
     def _run_item(self, info):
         import datetime as dt
-        c = QTreeWidgetItem([info.name, info.status, dt.datetime.fromtimestamp(info.mtime).strftime("%m-%d %H:%M")])
+        # status is shown by the coloured dot (and in the tooltip) so the run name gets the width
+        c = QTreeWidgetItem([info.name, dt.datetime.fromtimestamp(info.mtime).strftime("%m-%d %H:%M")])
         c.setData(0, Qt.UserRole, ("run", str(info.path)))
         c.setFlags(c.flags() | Qt.ItemIsUserCheckable)
         c.setCheckState(0, Qt.Checked if str(info.path) in self._checked_paths else Qt.Unchecked)
@@ -915,8 +950,10 @@ class ResultsPage(QWidget):
                "aborted": T.c("danger"), "running": T.c("accent"), "paused": T.c("warning")}.get(info.status,
                                                                                                T.c("text3"))
         c.setIcon(0, icons.icon("dot", col, 12))
-        c.setForeground(1, QColor(col))
-        c.setToolTip(0, f"{info.title}\n{info.path}\n{'Studio run' if info.source == 'studio' else 'notebook/script run'}")
+        tip = (f"{info.title}\nStatus: {info.status}\n{info.path}\n"
+               f"{'Studio run' if info.source == 'studio' else 'notebook/script run'}")
+        c.setToolTip(0, tip)
+        c.setToolTip(1, tip)
         return c
 
     def _checked(self, item, col):

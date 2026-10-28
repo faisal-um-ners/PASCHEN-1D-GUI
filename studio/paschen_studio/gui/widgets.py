@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import math
+import re
 
 from PySide6.QtCore import (Property, QEasingCurve, QPoint, QPropertyAnimation, QRect, QRectF, QSize, Qt,
                             Signal)
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPainterPath
 from PySide6.QtWidgets import (QAbstractButton, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout,
-                               QLabel, QLayout, QLineEdit, QPushButton, QSizePolicy, QToolButton,
-                               QVBoxLayout, QWidget)
+                               QLabel, QLayout, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QStyle,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from ..units import QuantityError, format_quantity, parse_quantity
 from . import icons
@@ -458,11 +459,156 @@ class Collapsible(QWidget):
         self.btn.setIcon(icons.icon("chevron_down" if on else "chevron_right", T.c("text2"), 14))
 
 
+def _md_inline(s: str) -> str:
+    s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+    s = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", s)
+    return re.sub(r"(?<![\w*])\*([^*\s][^*]*)\*(?![\w*])", r"<i>\1</i>", s)
+
+
+def md_to_html(md: str) -> str:
+    """Small markdown subset (paragraphs, bullet lists with continuation lines, headings, inline code, bold,
+    italics) for prose taken from the solver's guides."""
+    html, para, items = [], [], []
+    p_style = "margin-top:0px; margin-bottom:8px;"
+
+    def flush_para():
+        if para:
+            html.append(f"<p style='{p_style}'>" + " ".join(_md_inline(x) for x in para) + "</p>")
+            para.clear()
+
+    def flush_list():
+        if items:
+            html.append(f"<ul style='{p_style} -qt-list-indent:1;'>" +
+                        "".join(f"<li style='margin-bottom:3px;'>{_md_inline(' '.join(i))}</li>" for i in items) +
+                        "</ul>")
+            items.clear()
+
+    prev_blank = False
+    for ln in md.splitlines():
+        st = ln.strip()
+        bullet = re.match(r"^\s*[-*+]\s+(.*)$", ln)
+        if st.startswith("#"):
+            flush_para()
+            flush_list()
+            head = st.lstrip("#").strip()
+            if head and not re.fullmatch(r"[A-Za-z_]\w*", head):   # skip bare class names ("### CircuitConfig")
+                html.append(f"<p style='margin-top:6px; margin-bottom:6px;'><b>{_md_inline(head)}</b></p>")
+        elif bullet:
+            flush_para()
+            items.append([bullet.group(1).strip()])
+        elif not st:
+            flush_para()
+        elif items and not prev_blank:
+            items[-1].append(st)                                 # continuation of the last bullet
+        else:
+            flush_list()
+            para.append(st)
+        prev_blank = not st
+    flush_para()
+    flush_list()
+    return "".join(html)
+
+
+def wrapping_label(html: str, obj: str | None = "muted") -> QLabel:
+    """Rich-text label that always wraps to the width it is given (never widens its parent)."""
+    lab = QLabel(html)
+    if obj:
+        lab.setObjectName(obj)
+    lab.setTextFormat(Qt.RichText)
+    lab.setWordWrap(True)
+    lab.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse)
+    lab.setOpenExternalLinks(True)
+    lab.setMinimumWidth(40)     # long words/paths must not set the width of the whole page
+    return lab
+
+
+class CodeBlock(QScrollArea):
+    """Monospace block (code, ASCII circuit diagrams) that keeps its layout and scrolls sideways
+    inside its own box instead of widening the page."""
+
+    def __init__(self, text: str, parent=None):
+        super().__init__(parent)
+        self.setObjectName("codeBlock")
+        self.setWidgetResizable(False)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setFrameShape(QFrame.NoFrame)
+        lab = QLabel(text)
+        lab.setObjectName("codeText")
+        lab.setTextFormat(Qt.PlainText)
+        lab.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        f = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+        f.setPointSizeF(max(8.0, QFont().pointSizeF() - 1))
+        lab.setFont(f)
+        lab.setContentsMargins(10, 8, 10, 8)
+        lab.adjustSize()
+        self.setWidget(lab)
+        self._lab = lab
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumWidth(40)
+        self._fit()
+
+    def _fit(self):
+        sb = self.style().pixelMetric(QStyle.PM_ScrollBarExtent, None, self)
+        need_bar = self._lab.width() > max(1, self.viewport().width())
+        self.setFixedHeight(self._lab.height() + (sb if need_bar else 0) + 2)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._fit()
+
+    def sizeHint(self):  # noqa: D401
+        return QSize(min(self._lab.width(), 400), self._lab.height())
+
+    def minimumSizeHint(self):
+        return QSize(40, self._lab.height())
+
+
+class GuideText(QWidget):
+    """Renders a markdown snippet from the solver's guides: prose wraps to the available width,
+    fenced code blocks become side-scrolling CodeBlocks."""
+
+    def __init__(self, md: str, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(8)
+        text, code, in_code = [], [], False
+
+        def flush_text():
+            body = "\n".join(text).strip("\n")
+            text.clear()
+            if body.strip():
+                lay.addWidget(wrapping_label(md_to_html(body)))
+
+        for ln in md.splitlines():
+            if ln.strip().startswith("```"):
+                if in_code:
+                    while code and not code[-1].strip():
+                        code.pop()
+                    if code:
+                        lay.addWidget(CodeBlock("\n".join(code)))
+                    code.clear()
+                else:
+                    flush_text()
+                in_code = not in_code
+                continue
+            (code if in_code else text).append(ln)
+        if code:
+            lay.addWidget(CodeBlock("\n".join(code)))
+        flush_text()
+
+
 class ElidedLabel(QLabel):
-    def __init__(self, text="", parent=None):
+    def __init__(self, text="", parent=None, mode=Qt.ElideMiddle):
         super().__init__(text, parent)
         self._full = text
+        self._mode = mode
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def full_text(self) -> str:
+        return self._full
 
     def setText(self, t):  # noqa: N802
         self._full = t
@@ -474,8 +620,9 @@ class ElidedLabel(QLabel):
 
     def _elide(self):
         fm = self.fontMetrics()
-        super().setText(fm.elidedText(self._full, Qt.ElideMiddle, max(10, self.width())))
-        self.setToolTip(self._full)
+        shown = fm.elidedText(self._full, self._mode, max(10, self.width()))
+        super().setText(shown)
+        self.setToolTip(self._full if shown != self._full else "")
 
 
 def bold_font(pt_delta: float = 0, weight=QFont.DemiBold) -> QFont:
