@@ -218,3 +218,36 @@ def test_guide_text_wraps_and_lists():
     g = GuideText("Intro\n\n```\nV_app(t) -- R0 -- V_node -- R_m -- V_gap -- a very long diagram line\n```\n\nEnd.")
     blocks = g.findChildren(CodeBlock)
     assert len(blocks) == 1 and blocks[0].minimumSizeHint().width() <= 60
+
+
+def test_export_dialog_options(tmp_path):
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from paschen_studio.gui.app import setup_application
+    setup_application(theme_name="light")
+    import numpy as np
+    from paschen_studio.gui.plotting import AxesSpec, FigureSpec, PlotCanvas, Series
+    from paschen_studio.gui.export_dialog import ExportDialog, export_figure, to_mathtext, tex_safe
+    assert to_mathtext("Gap voltage V_gap") == r"Gap voltage $V_\mathrm{gap}$"
+    assert to_mathtext("densities [m⁻³]") == "densities [m$^{-3}$]"
+    assert "$$" not in tex_safe("μ·N [1/(m·V·s)]")
+    x = np.linspace(0, 1e-7, 50)
+    spec = FigureSpec([AxesSpec(xlabel="time [ns]", ylabel="voltages [kV]",
+                                series=[Series(x * 1e9, np.sin(x * 3e7), label="Applied voltage V_app"),
+                                        Series(x * 1e9, np.cos(x * 3e7), label="Gap voltage V_gap")])])
+    c = PlotCanvas("", export_name="v")
+    c.set_spec(spec, keep_view=False)
+    dlg = ExportDialog(c, c._spec, c.current_view(), "v")
+    assert dlg.p_y.text() == "voltages [kV]" and dlg.entry_edits[1].text() == r"Gap voltage $V_\mathrm{gap}$"
+    assert dlg.p_x0.text() != ""                          # limits pre-filled from the plot
+    dlg.p_y.setText(r"$V$ (kV)")
+    dlg.entry_edits[0].setText("")                        # drop a curve from the legend
+    dlg.lg_pos.setCurrentIndex(10)                        # outside right
+    dlg.p_yscale.setCurrentIndex(1)                       # log y
+    opts = dlg.options()
+    assert opts.panels[0].ylabel == r"$V$ (kV)" and opts.panels[0].yscale == "log"
+    assert opts.panels[0].ylim[0] is None or opts.panels[0].ylim[0] > 0
+    for ext in ("pdf", "png", "svg"):
+        opts.fmt = ext
+        p = export_figure(c._spec, opts, str(tmp_path / f"fig.{ext}"))
+        assert os.path.getsize(p) > 1000

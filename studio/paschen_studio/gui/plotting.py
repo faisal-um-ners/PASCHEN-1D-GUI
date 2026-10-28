@@ -17,11 +17,10 @@ import numpy as np  # noqa: E402
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT  # noqa: E402
 from matplotlib.colors import LogNorm, Normalize, SymLogNorm  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
-from PySide6.QtCore import QSize, Qt, QTimer, Signal  # noqa: E402
+from PySide6.QtCore import Qt, Signal  # noqa: E402
 from PySide6.QtGui import QGuiApplication, QImage  # noqa: E402
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,  # noqa: E402
-                               QFileDialog, QFormLayout, QHBoxLayout, QLabel, QMenu, QSizePolicy,
-                               QSpinBox, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QMenu, QSizePolicy, QToolButton,  # noqa: E402
+                               QVBoxLayout, QWidget)
 
 from . import theme as T  # noqa: E402
 from .widgets import icon_button, label  # noqa: E402
@@ -99,7 +98,7 @@ class FigureSpec:
 
 
 # ---------------------------------------------------------------------------
-def _draw_axes(ax, spec: AxesSpec, fig, publication: bool, colors: list[str]):
+def _draw_axes(ax, spec: AxesSpec, fig, publication: bool, colors: list[str], legend_opts: dict | None = None):
     ax.set_title(spec.title)
     ax.set_xlabel(spec.xlabel)
     ax.set_ylabel(spec.ylabel)
@@ -207,7 +206,15 @@ def _draw_axes(ax, spec: AxesSpec, fig, publication: bool, colors: list[str]):
             handles += h2
             labels += l2
         if labels:
-            ax.legend(handles, labels, loc="best")
+            lo = legend_opts or {}
+            kw = {"loc": lo.get("loc", "best")}
+            if lo.get("bbox") is not None:
+                kw["bbox_to_anchor"] = lo["bbox"]
+                kw["borderaxespad"] = 0.0
+            for k in ("ncol", "frameon", "fontsize"):
+                if k in lo:
+                    kw[k] = lo[k]
+            ax.legend(handles, labels, **kw)
     if not has_data and spec.empty_text:
         ax.text(0.5, 0.5, spec.empty_text, transform=ax.transAxes, ha="center", va="center",
                 color=("#888888" if publication else T.c("text3")), fontsize=10)
@@ -234,7 +241,8 @@ def _norm_for(im: ImageSpec):
                      vmax=im.vmax if im.vmax is not None else float(np.nanmax(d)))
 
 
-def render(fig: Figure, spec: FigureSpec, publication: bool = False, colors: list[str] | None = None):
+def render(fig: Figure, spec: FigureSpec, publication: bool = False, colors: list[str] | None = None,
+           legend_opts: dict | None = None):
     fig.clear()
     colors = colors or (list(matplotlib.rcParams["axes.prop_cycle"].by_key().get("color", [])) or T.c("series"))
     axes, arts = [], []
@@ -242,7 +250,7 @@ def render(fig: Figure, spec: FigureSpec, publication: bool = False, colors: lis
     for i, a in enumerate(spec.axes):
         ax = fig.add_subplot(spec.rows, spec.cols, i + 1, sharex=first if spec.sharex else None)
         first = first or ax
-        arts.append(_draw_axes(ax, a, fig, publication, colors))
+        arts.append(_draw_axes(ax, a, fig, publication, colors, legend_opts))
         axes.append(ax)
     if spec.suptitle:
         fig.suptitle(spec.suptitle, fontweight="bold")
@@ -251,65 +259,6 @@ def render(fig: Figure, spec: FigureSpec, publication: bool = False, colors: lis
     except Exception:
         pass
     return axes, arts
-
-
-# ---------------------------------------------------------------------------
-class ExportDialog(QDialog):
-    def __init__(self, parent=None, default_name: str = "figure"):
-        super().__init__(parent)
-        self.setWindowTitle("Export figure")
-        self.setMinimumWidth(360)
-        lay = QVBoxLayout(self)
-        lay.addWidget(label("Re-renders the plot with a clean publication style.", "muted", wrap=True))
-        form = QFormLayout()
-        self.fmt = QComboBox()
-        for f in ("PNG (raster)", "PDF (vector)", "SVG (vector)", "EPS (vector)", "TIFF (raster)"):
-            self.fmt.addItem(f)
-        self.style = QComboBox()
-        self.style.addItems(["Publication – white", "Presentation – dark", "Same as screen"])
-        self.w = QDoubleSpinBox()
-        self.w.setRange(1.0, 30.0)
-        self.w.setValue(3.4)
-        self.w.setSuffix(" in")
-        self.h = QDoubleSpinBox()
-        self.h.setRange(1.0, 30.0)
-        self.h.setValue(2.6)
-        self.h.setSuffix(" in")
-        self.preset = QComboBox()
-        self.preset.addItems(["Single column (3.4 × 2.6 in)", "Double column (7.0 × 3.6 in)",
-                              "Slide (10 × 5.6 in)", "Square (4 × 4 in)", "Custom"])
-        self.preset.currentIndexChanged.connect(self._preset)
-        self.dpi = QSpinBox()
-        self.dpi.setRange(72, 2400)
-        self.dpi.setValue(600)
-        self.font = QDoubleSpinBox()
-        self.font.setRange(5, 30)
-        self.font.setValue(9.0)
-        self.font.setSuffix(" pt")
-        self.title_chk = QCheckBox("Include panel titles")
-        self.title_chk.setChecked(False)
-        form.addRow("Format", self.fmt)
-        form.addRow("Style", self.style)
-        form.addRow("Size preset", self.preset)
-        form.addRow("Width", self.w)
-        form.addRow("Height", self.h)
-        form.addRow("Resolution (DPI)", self.dpi)
-        form.addRow("Font size", self.font)
-        form.addRow("", self.title_chk)
-        lay.addLayout(form)
-        bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
-
-    def _preset(self, i):
-        sizes = [(3.4, 2.6), (7.0, 3.6), (10.0, 5.6), (4.0, 4.0)]
-        if i < len(sizes):
-            self.w.setValue(sizes[i][0])
-            self.h.setValue(sizes[i][1])
-
-    def ext(self) -> str:
-        return ["png", "pdf", "svg", "eps", "tiff"][self.fmt.currentIndex()]
 
 
 # ---------------------------------------------------------------------------
@@ -556,42 +505,41 @@ class PlotCanvas(QWidget):
         m.exec(self.mapToGlobal(pos))
 
     # -- export ------------------------------------------------------------------
+    def current_view(self):
+        """Axis limits currently shown on screen, one (xlim, ylim) per panel."""
+        try:
+            return [(tuple(ax.get_xlim()), tuple(ax.get_ylim())) for ax in self._axes]
+        except Exception:
+            return None
+
     def export_dialog(self):
         if self._spec is None:
             return
-        dlg = ExportDialog(self, self.export_name)
+        from .export_dialog import ExportDialog, export_figure
+        dlg = ExportDialog(self, self._spec, self.current_view(), self.export_name)
         if dlg.exec() != QDialog.Accepted:
             return
-        ext = dlg.ext()
+        opts = dlg.options()
+        ext = opts.fmt
         path, _ = QFileDialog.getSaveFileName(self, "Export figure", f"{self.export_name}.{ext}",
                                               f"{ext.upper()} (*.{ext})")
         if not path:
             return
         if not path.lower().endswith("." + ext):
             path += "." + ext
-        self.export_to(path, dlg.w.value(), dlg.h.value(), dlg.dpi.value(), dlg.font.value(),
-                       style=["publication", "dark", "screen"][dlg.style.currentIndex()],
-                       titles=dlg.title_chk.isChecked())
+        try:
+            export_figure(self._spec, opts, path)
+        except Exception as exc:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Export failed", f"The figure could not be written:\n{exc}")
 
     def export_to(self, path: str, w: float, h: float, dpi: int, font: float, style: str = "publication",
                   titles: bool = False):
-        import copy
-        spec = copy.deepcopy(self._spec)
-        if not titles:
-            for a in spec.axes:
-                a.title = ""
-        if style == "screen":
-            fig = Figure(figsize=(w, h), dpi=dpi)
-            render(fig, spec, publication=False, colors=T.c("series"))
-            fig.savefig(path, dpi=dpi, facecolor=fig.get_facecolor())
-            return path
-        rc = T.publication_rc(font, dark=(style == "dark"))
-        with matplotlib.rc_context(rc):
-            fig = Figure(figsize=(w, h), dpi=dpi)
-            render(fig, spec, publication=True,
-                   colors=matplotlib.rcParams["axes.prop_cycle"].by_key()["color"])
-            fig.savefig(path, dpi=dpi)
-        return path
+        """Non-interactive export with the default options (labels etc. as on screen)."""
+        from .export_dialog import ExportOptions, defaults_from_spec, export_figure
+        opts = ExportOptions(fmt=path.rsplit(".", 1)[-1].lower(), style=style, w=w, h=h, dpi=dpi, font_size=font,
+                             titles=titles, panels=defaults_from_spec(self._spec, self.current_view()))
+        return export_figure(self._spec, opts, path)
 
     def export_csv(self):
         if self._spec is None:

@@ -127,9 +127,25 @@ PASCHEN-1D folder and any extra folders (folder button or *Preferences*). Sweeps
 ## 7. Plots and publication export
 
 Every plot has: reset view (also double-click), pan, zoom-to-rectangle, mouse-wheel zoom, logarithmic y,
-**Export figure** (PNG, PDF, SVG, EPS, TIFF; single-column, double-column, slide or custom size; DPI; font
-size; white publication style or dark slide style; panel titles on/off), **Export data (CSV)** and **Copy
-image**. Exported figures are re-rendered with Matplotlib – not screenshots.
+**Export figure**, **Export data (CSV)** and **Copy image** (in narrow panels the last three sit under one
+export button). Exported figures are re-rendered with Matplotlib – not screenshots.
+
+**Export figure** opens a dialog with a **live preview** of the file you are about to save; every change is
+shown immediately. All fields start from the plot on screen (its labels, legend entries, axis scales and the
+axis limits currently shown) and can be edited:
+
+| Tab | Options |
+|---|---|
+| Page | PNG, PDF, SVG, EPS or TIFF · single-column, double-column, slide, square or custom size · resolution · white publication, dark presentation or on-screen style |
+| Text | Font (sans-serif Arial/Helvetica, serif Times, LaTeX-look Computer Modern, STIX, DejaVu) · font size · line width · ticks inside/outside · grid · panel titles · *Typeset all text with LaTeX* (when a LaTeX installation with dvipng is found) |
+| Axes | Per panel: title, x label, y label (and right-hand y label) · linear or logarithmic x and y · x and y range (**Auto** fits the data) |
+| Legend | Show/hide per panel · position (best, any corner or edge, outside right, above the plot) · columns · text size · frame · the text of every entry (clear an entry to leave that curve out) |
+
+Labels accept LaTeX math between dollar signs, for example `$V_\mathrm{gap}$ (kV)`, `$n_e$ [m$^{-3}$]` or
+`$E/N$ (Td)`; subscripts in the plot's own labels (V_gap, nₑ, m⁻³) are converted to this form automatically.
+If a label contains invalid math the preview says so and *Save* stays disabled until it is fixed.
+**Reset to plot** restores everything taken from the plot; page, font and legend settings are remembered
+between exports.
 
 ## 8. Parameter sweeps
 
