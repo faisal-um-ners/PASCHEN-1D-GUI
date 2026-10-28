@@ -224,30 +224,44 @@ def test_export_dialog_options(tmp_path):
     pytest.importorskip("PySide6")
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from paschen_studio.gui.app import setup_application
-    setup_application(theme_name="light")
+    app = setup_application(theme_name="light")
     import numpy as np
     from paschen_studio.gui.plotting import AxesSpec, FigureSpec, PlotCanvas, Series
-    from paschen_studio.gui.export_dialog import ExportDialog, export_figure, to_mathtext, tex_safe
+    from paschen_studio.gui.export_dialog import (ExportDialog, export_figure, parse_ticks, preview_png, tex_safe,
+                                                  to_mathtext)
     assert to_mathtext("Gap voltage V_gap") == r"Gap voltage $V_\mathrm{gap}$"
     assert to_mathtext("densities [m⁻³]") == "densities [m$^{-3}$]"
     assert "$$" not in tex_safe("μ·N [1/(m·V·s)]")
+    assert parse_ticks("0, 5,10") == [0.0, 5.0, 10.0] and parse_ticks("") is None
     x = np.linspace(0, 1e-7, 50)
-    spec = FigureSpec([AxesSpec(xlabel="time [ns]", ylabel="voltages [kV]",
-                                series=[Series(x * 1e9, np.sin(x * 3e7), label="Applied voltage V_app"),
-                                        Series(x * 1e9, np.cos(x * 3e7), label="Gap voltage V_gap")])])
+    spec = FigureSpec([AxesSpec(title="Voltages", xlabel="time [ns]", ylabel="voltages [kV]",
+                                series=[Series(x * 1e9, 1 + np.sin(x * 3e7), label="Applied voltage V_app"),
+                                        Series(x * 1e9, 2 + np.cos(x * 3e7), label="Gap voltage V_gap")])])
     c = PlotCanvas("", export_name="v")
     c.set_spec(spec, keep_view=False)
     dlg = ExportDialog(c, c._spec, c.current_view(), "v")
-    assert dlg.p_y.text() == "voltages [kV]" and dlg.entry_edits[1].text() == r"Gap voltage $V_\mathrm{gap}$"
-    assert dlg.p_x0.text() != ""                          # limits pre-filled from the plot
+    dlg._update_preview()
+    assert dlg.p_y.text() == "voltages [kV]" and dlg.p_title.text() == ""          # no title unless typed
+    assert dlg.curve_w[1]["text"].text() == r"Gap voltage $V_\mathrm{gap}$"
+    assert dlg.ax_w["x"]["lo"].text() != "" and dlg.ax_w["x"]["ticks"].text() != ""  # filled from the figure
     dlg.p_y.setText(r"$V$ (kV)")
-    dlg.entry_edits[0].setText("")                        # drop a curve from the legend
+    dlg.curve_w[0]["text"].setText("")                    # drop a curve from the legend
+    dlg.curve_w[1]["marker"].setCurrentIndex(1)
+    dlg.ax_w["x"]["ticks"].setText("0, 50, 100")
+    dlg._ticks_typed("x")
+    dlg.ax_w["y"]["scale"].setCurrentIndex(1)             # log y: smart decade range
     dlg.lg_pos.setCurrentIndex(10)                        # outside right
-    dlg.p_yscale.setCurrentIndex(1)                       # log y
     opts = dlg.options()
-    assert opts.panels[0].ylabel == r"$V$ (kV)" and opts.panels[0].yscale == "log"
-    assert opts.panels[0].ylim[0] is None or opts.panels[0].ylim[0] > 0
+    p = opts.panels[0]
+    assert p.ylabel == r"$V$ (kV)" and p.yscale == "log" and p.ylim[0] > 0
+    assert not p.xticks_auto and parse_ticks(p.xticks) == [0.0, 50.0, 100.0]
+    assert p.curves[1].marker == "o" and p.curves[0].label == ""
+    png, ticks = preview_png(c._spec, opts, 80, with_ticks=True)
+    assert png[:4] == b"\x89PNG" and ticks[0][0] == [0.0, 50.0, 100.0]
     for ext in ("pdf", "png", "svg"):
         opts.fmt = ext
-        p = export_figure(c._spec, opts, str(tmp_path / f"fig.{ext}"))
-        assert os.path.getsize(p) > 1000
+        out = export_figure(c._spec, opts, str(tmp_path / f"fig.{ext}"))
+        assert os.path.getsize(out) > 1000
+    st = dlg.state()
+    dlg2 = ExportDialog(c, c._spec, c.current_view(), "v", state=st)
+    assert dlg2.p_y.text() == r"$V$ (kV)"

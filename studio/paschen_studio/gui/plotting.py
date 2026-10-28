@@ -39,6 +39,8 @@ class Series:
     alpha: float = 1.0
     fill: bool = False
     step: bool = False
+    markersize: float | None = None
+    markevery: int | None = None
 
 
 @dataclass
@@ -79,6 +81,8 @@ class AxesSpec:
     ylim: tuple | None = None
     twin: "AxesSpec | None" = None
     empty_text: str = ""
+    xticks: list | None = None
+    yticks: list | None = None
 
 
 @dataclass
@@ -121,12 +125,7 @@ def _draw_axes(ax, spec: AxesSpec, fig, publication: bool, colors: list[str], le
         y = np.asarray(s.y, dtype=float)
         if spec.yscale == "log":
             y = np.where(y > 0, y, np.nan)
-        kw = dict(color=col, linestyle=s.style, alpha=s.alpha, label=s.label or None)
-        if s.width:
-            kw["linewidth"] = s.width
-        if s.marker:
-            kw["marker"] = s.marker
-            kw["markersize"] = 4
+        kw = _line_kw(s, col)
         if s.step:
             (ln,) = ax.step(x, y, where="post", **kw)
         else:
@@ -181,6 +180,7 @@ def _draw_axes(ax, spec: AxesSpec, fig, publication: bool, colors: list[str], le
         ax.set_xlim(*spec.xlim)
     if spec.ylim:
         ax.set_ylim(*spec.ylim)
+    _apply_ticks(ax, spec)
     if spec.twin is not None:
         ax2 = ax.twinx()
         ax2.set_ylabel(spec.twin.ylabel)
@@ -189,8 +189,7 @@ def _draw_axes(ax, spec: AxesSpec, fig, publication: bool, colors: list[str], le
             ax2.grid(False)
         for i, s in enumerate(spec.twin.series):
             col = s.color or colors[(i + len(spec.series)) % len(colors)]
-            (ln,) = ax2.plot(s.x, s.y, color=col, linestyle=s.style, label=s.label or None,
-                             linewidth=s.width or None)
+            (ln,) = ax2.plot(s.x, s.y, **_line_kw(s, col))
             artists["lines"].append(ln)
         if spec.twin.yscale != "linear":
             ax2.set_yscale(spec.twin.yscale)
@@ -211,7 +210,7 @@ def _draw_axes(ax, spec: AxesSpec, fig, publication: bool, colors: list[str], le
             if lo.get("bbox") is not None:
                 kw["bbox_to_anchor"] = lo["bbox"]
                 kw["borderaxespad"] = 0.0
-            for k in ("ncol", "frameon", "fontsize"):
+            for k in ("ncol", "frameon", "fontsize", "handlelength", "handletextpad", "labelspacing", "columnspacing"):
                 if k in lo:
                     kw[k] = lo[k]
             ax.legend(handles, labels, **kw)
@@ -221,6 +220,32 @@ def _draw_axes(ax, spec: AxesSpec, fig, publication: bool, colors: list[str], le
         ax.set_xticks([])
         ax.set_yticks([])
     return artists
+
+
+def _line_kw(s: Series, col: str) -> dict:
+    style = s.style if s.style not in ("none", "None", "") else "None"
+    kw = dict(color=col, linestyle=style, alpha=s.alpha, label=s.label or None)
+    if s.width:
+        kw["linewidth"] = s.width
+    if s.marker and s.marker not in ("none", "None"):
+        kw["marker"] = s.marker
+        kw["markersize"] = s.markersize or 4
+        if s.markevery and s.markevery > 1:
+            kw["markevery"] = s.markevery
+    return kw
+
+
+def _apply_ticks(ax, spec: AxesSpec):
+    """Explicit tick positions (export dialog). Requested limits are kept; with automatic limits the axis
+    may grow to show every tick."""
+    for axis, ticks, lim, scale in (("x", spec.xticks, spec.xlim, spec.xscale), ("y", spec.yticks, spec.ylim,
+                                                                                 spec.yscale)):
+        if ticks is None:
+            continue
+        vals = [float(t) for t in ticks if math.isfinite(float(t)) and (scale != "log" or float(t) > 0)]
+        (ax.set_xticks if axis == "x" else ax.set_yticks)(vals)
+        if lim:                                   # requested limits win over tick positions
+            (ax.set_xlim if axis == "x" else ax.set_ylim)(*lim)
 
 
 def _norm_for(im: ImageSpec):
@@ -516,8 +541,13 @@ class PlotCanvas(QWidget):
         if self._spec is None:
             return
         from .export_dialog import ExportDialog, export_figure
-        dlg = ExportDialog(self, self._spec, self.current_view(), self.export_name)
-        if dlg.exec() != QDialog.Accepted:
+        key = self._spec.signature()
+        if not hasattr(self, "_export_state"):
+            self._export_state = {}
+        dlg = ExportDialog(self, self._spec, self.current_view(), self.export_name, state=self._export_state.get(key))
+        ok = dlg.exec() == QDialog.Accepted
+        self._export_state[key] = dlg.state()          # reopening the dialog for this plot keeps the edits
+        if not ok:
             return
         opts = dlg.options()
         ext = opts.fmt

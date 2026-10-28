@@ -1,9 +1,9 @@
 """Publication export with a live preview.
 
-Everything starts from the plot on screen (its labels, legend entries, axis scales and the axis limits
-currently shown) and can be edited: page size and format, font family and size (including LaTeX
-typesetting), axis labels with $…$ math, legend on/off, position, columns and entry texts, linear/log
-axes and axis limits.
+Every field starts from the plot on screen - labels, legend texts, curve colours and styles, axis scales,
+the axis range currently shown and the tick positions - and can be edited: output format and size, font
+(including LaTeX typesetting), titles, axis labels with $…$ math, linear/log axes, ranges and ticks, line
+colour/style/width and markers, and the legend. The preview on the right is the exported figure itself.
 """
 from __future__ import annotations
 
@@ -15,12 +15,13 @@ import shutil
 from dataclasses import dataclass, field
 
 import matplotlib
+import numpy as np
 from matplotlib.figure import Figure
-from PySide6.QtCore import QSettings, Qt, QTimer
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QFrame, QHBoxLayout,
-                               QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QTabWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtCore import QMimeData, QSettings, Qt, QTimer
+from PySide6.QtGui import QColor, QGuiApplication, QImage, QPixmap
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QFrame,
+                               QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
+                               QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from . import theme as T
 from .plotting import FigureSpec, render
@@ -42,6 +43,18 @@ LEGEND_POS = [("Automatic (best place)", "best", None), ("Upper right", "upper r
               ("Outside, right of the plot", "center left", (1.02, 0.5)),
               ("Outside, above the plot", "lower center", (0.5, 1.02))]
 SCALES = [("Linear", "linear"), ("Logarithmic", "log")]
+LINE_STYLES = [("Solid", "-"), ("Dashed", "--"), ("Dotted", ":"), ("Dash-dot", "-."), ("No line", "none")]
+MARKERS = [("None", "none"), ("● Circle", "o"), ("■ Square", "s"), ("▲ Triangle", "^"), ("▼ Triangle down", "v"),
+           ("◆ Diamond", "D"), ("✕ Cross", "x"), ("+ Plus", "+"), ("· Point", ".")]
+CMAPS = ["inferno", "viridis", "magma", "plasma", "cividis", "turbo", "RdBu_r", "coolwarm", "gray", "Greys"]
+PALETTES = {
+    "Publication": ["#1f4e9c", "#d1495b", "#2a9d8f", "#e9a03b", "#6a4c93", "#3d5a80", "#8d6e63", "#111111"],
+    "Colour-blind safe (Okabe–Ito)": ["#0072B2", "#D55E00", "#009E73", "#E69F00", "#CC79A7", "#56B4E9",
+                                      "#000000", "#F0E442"],
+    "Matplotlib (tab10)": ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f"],
+    "Viridis": "viridis",
+    "Black & white (line styles)": "bw",
+}
 MATH_HINT = ("Labels accept LaTeX math between dollar signs, e.g. <code>$V_\\mathrm{gap}$ (kV)</code>, "
              "<code>$n_e$ [m$^{-3}$]</code>, <code>$E/N$ (Td)</code>.")
 
@@ -49,8 +62,19 @@ MATH_HINT = ("Labels accept LaTeX math between dollar signs, e.g. <code>$V_\\mat
 # ---------------------------------------------------------------------------
 # options
 @dataclass
+class CurveOpts:
+    label: str = ""
+    color: str = "#1f4e9c"
+    style: str = "-"
+    width: float = 0.0            # 0 = the default line width (Text tab)
+    marker: str = "none"
+    msize: float = 4.0
+
+
+@dataclass
 class PanelOpts:
     title: str = ""
+    title_hint: str = ""
     xlabel: str = ""
     ylabel: str = ""
     ylabel2: str | None = None
@@ -58,8 +82,14 @@ class PanelOpts:
     yscale: str = "linear"
     xlim: tuple = (None, None)
     ylim: tuple = (None, None)
+    xticks: str = ""
+    yticks: str = ""
+    xticks_auto: bool = True
+    yticks_auto: bool = True
     legend: bool = True
-    labels: list = field(default_factory=list)
+    curves: list = field(default_factory=list)
+    clabel: str | None = None
+    cmap: str | None = None
 
 
 @dataclass
@@ -74,12 +104,17 @@ class ExportOptions:
     usetex: bool = False
     line_width: float = 1.5
     ticks: str = "in"
+    minor_ticks: bool = True
     grid: bool = False
-    titles: bool = False
+    suptitle: str = ""
+    markers_per_curve: int = 12
     legend_pos: int = 0
     legend_ncol: int = 1
     legend_frame: bool = False
     legend_scale: float = 0.85
+    legend_handle: float = 2.0         # length of the line sample, in font sizes
+    legend_gap: float = 0.8            # gap between line sample and text, in font sizes
+    legend_rows: float = 0.5           # vertical space between entries, in font sizes
     panels: list = field(default_factory=list)
 
 
@@ -140,41 +175,100 @@ def latex_available() -> bool:
     return bool(shutil.which("latex") and shutil.which("dvipng"))
 
 
+def fmt_number(v: float) -> str:
+    if v == 0:
+        return "0"
+    s = f"{v:.6g}"
+    return s.replace("e+0", "e").replace("e+", "e").replace("e-0", "e-")
+
+
+def parse_ticks(text: str):
+    """'0, 5, 10' or '1e18 1e19' → list of floats; '' → None (automatic); invalid → raises ValueError."""
+    t = text.strip().replace("−", "-")
+    if not t:
+        return None
+    return [float(x) for x in re.split(r"[,;\s]+", t) if x]
+
+
+def palette_colors(name: str, n: int) -> tuple[list[str], list[str] | None]:
+    """Colours (and, for black & white, line styles) for n curves."""
+    p = PALETTES[name]
+    if p == "bw":
+        return ["#000000"] * n, [["-", "--", ":", "-."][i % 4] for i in range(n)]
+    if p == "viridis":
+        cmap = matplotlib.colormaps["viridis"]
+        return [matplotlib.colors.to_hex(cmap(0.05 + 0.85 * i / max(1, n - 1))) for i in range(n)], None
+    return [p[i % len(p)] for i in range(n)], None
+
+
 # ---------------------------------------------------------------------------
 # rendering
+def _series_of(a):
+    return list(a.series) + (list(a.twin.series) if a.twin is not None else [])
+
+
 def defaults_from_spec(spec: FigureSpec, view=None) -> list[PanelOpts]:
-    """Panel options pre-filled from the plot on screen (labels, legend texts, scales, visible limits)."""
+    """Panel options pre-filled from the plot on screen (labels, legend texts, colours and styles, scales,
+    the visible range)."""
+    screen = T.c("series")
     panels = []
     for i, a in enumerate(spec.axes):
-        ser = list(a.series) + (list(a.twin.series) if a.twin is not None else [])
-        p = PanelOpts(title=a.title, xlabel=to_mathtext(a.xlabel), ylabel=to_mathtext(a.ylabel),
+        curves = []
+        for k, s in enumerate(_series_of(a)):
+            curves.append(CurveOpts(label=to_mathtext(s.label), color=s.color or screen[k % len(screen)],
+                                    style=s.style if s.style in ("-", "--", ":", "-.") else "-",
+                                    width=float(s.width or 0.0), marker=s.marker or "none",
+                                    msize=float(s.markersize or 4.0)))
+        p = PanelOpts(title="", title_hint=a.title, xlabel=to_mathtext(a.xlabel), ylabel=to_mathtext(a.ylabel),
                       ylabel2=to_mathtext(a.twin.ylabel) if a.twin is not None else None,
                       xscale=a.xscale if a.xscale in ("linear", "log") else "linear",
                       yscale=a.yscale if a.yscale in ("linear", "log") else "linear",
-                      legend=a.legend, labels=[to_mathtext(s.label) for s in ser])
+                      legend=a.legend, curves=curves,
+                      clabel=to_mathtext(a.image.clabel) if a.image is not None else None,
+                      cmap=a.image.cmap if a.image is not None else None)
         if view is not None and i < len(view) and view[i] is not None:
             (x0, x1), (y0, y1) = view[i]
-            p.xlim, p.ylim = (x0, x1), (y0, y1)
+            p.xlim = (float(f"{x0:.4g}"), float(f"{x1:.4g}"))
+            if a.image is None or True:
+                p.ylim = (float(f"{y0:.4g}"), float(f"{y1:.4g}"))
         panels.append(p)
     return panels
 
 
 def build_spec(spec: FigureSpec, opts: ExportOptions) -> FigureSpec:
     s = copy.deepcopy(spec)
+    s.suptitle = opts.suptitle.strip()
     for a, p in zip(s.axes, opts.panels):
-        a.title = p.title if opts.titles else ""
+        a.title = p.title.strip()                         # empty → no title and no space for it
         a.xlabel, a.ylabel = p.xlabel, p.ylabel
         if a.twin is not None and p.ylabel2 is not None:
             a.twin.ylabel = p.ylabel2
         a.xscale, a.yscale = p.xscale, p.yscale
         a.xlim = tuple(p.xlim) if any(v is not None for v in p.xlim) else None
         a.ylim = tuple(p.ylim) if any(v is not None for v in p.ylim) else None
+        for axis in ("x", "y"):
+            ticks = None
+            if not getattr(p, f"{axis}ticks_auto"):
+                try:
+                    ticks = parse_ticks(getattr(p, f"{axis}ticks"))
+                except ValueError:
+                    ticks = None
+            setattr(a, f"{axis}ticks", ticks)
         a.legend = p.legend
-        ser = list(a.series) + (list(a.twin.series) if a.twin is not None else [])
-        for se, lab in zip(ser, p.labels):
-            se.label = lab
-    if not opts.titles:
-        s.suptitle = ""
+        for se, c in zip(_series_of(a), p.curves):
+            se.label, se.color, se.style = c.label, c.color, c.style
+            se.width = c.width or None
+            se.marker = None if c.marker == "none" else c.marker
+            se.markersize = c.msize
+            n = len(np.asarray(se.x))
+            se.markevery = max(1, n // max(1, opts.markers_per_curve)) if se.marker else None
+            if c.style == "none" and not se.marker:
+                se.marker, se.markersize, se.markevery = "o", c.msize, max(1, n // max(1, opts.markers_per_curve))
+        if a.image is not None:
+            if p.clabel is not None:
+                a.image.clabel = p.clabel
+            if p.cmap:
+                a.image.cmap = p.cmap
     if opts.usetex:
         s.suptitle = tex_safe(s.suptitle)
         for a in s.axes:
@@ -210,15 +304,13 @@ def _family_rc(key: str, usetex: bool) -> dict:
 
 
 def export_rc(opts: ExportOptions) -> dict:
-    if opts.style == "screen":
-        rc = {}
-    else:
-        rc = T.publication_rc(opts.font_size, dark=(opts.style == "dark"))
+    rc = {} if opts.style == "screen" else T.publication_rc(opts.font_size, dark=(opts.style == "dark"))
     fs = opts.font_size
-    rc.update({"font.size": fs, "axes.labelsize": fs, "axes.titlesize": fs, "xtick.labelsize": fs * 0.9,
-               "ytick.labelsize": fs * 0.9, "legend.fontsize": fs * opts.legend_scale,
+    rc.update({"font.size": fs, "axes.labelsize": fs, "axes.titlesize": fs, "figure.titlesize": fs * 1.1,
+               "xtick.labelsize": fs * 0.9, "ytick.labelsize": fs * 0.9, "legend.fontsize": fs * opts.legend_scale,
                "legend.frameon": opts.legend_frame, "lines.linewidth": opts.line_width,
                "xtick.direction": opts.ticks, "ytick.direction": opts.ticks, "axes.grid": opts.grid,
+               "xtick.minor.visible": opts.minor_ticks, "ytick.minor.visible": opts.minor_ticks,
                "grid.alpha": 0.35, "grid.linewidth": 0.6})
     rc.update(_family_rc(opts.family, opts.usetex))
     return rc
@@ -226,7 +318,8 @@ def export_rc(opts: ExportOptions) -> dict:
 
 def _legend_opts(opts: ExportOptions) -> dict:
     _, loc, bbox = LEGEND_POS[max(0, min(opts.legend_pos, len(LEGEND_POS) - 1))]
-    lo = {"loc": loc, "ncol": opts.legend_ncol, "frameon": opts.legend_frame}
+    lo = {"loc": loc, "ncol": opts.legend_ncol, "frameon": opts.legend_frame, "handlelength": opts.legend_handle,
+          "handletextpad": opts.legend_gap, "labelspacing": opts.legend_rows, "columnspacing": 1.2}
     if bbox is not None:
         lo["bbox"] = bbox
     return lo
@@ -237,43 +330,56 @@ def _draw(spec: FigureSpec, opts: ExportOptions, dpi: float, sink):
     with matplotlib.rc_context(export_rc(opts)):
         fig = Figure(figsize=(opts.w, opts.h), dpi=dpi)
         if opts.style == "screen":
-            render(fig, spec2, publication=False, colors=T.c("series"), legend_opts=_legend_opts(opts))
+            axes, _ = render(fig, spec2, publication=False, colors=T.c("series"), legend_opts=_legend_opts(opts))
         else:
-            render(fig, spec2, publication=True, colors=matplotlib.rcParams["axes.prop_cycle"].by_key()["color"],
-                   legend_opts=_legend_opts(opts))
-        return sink(fig)
+            axes, _ = render(fig, spec2, publication=True,
+                             colors=matplotlib.rcParams["axes.prop_cycle"].by_key()["color"],
+                             legend_opts=_legend_opts(opts))
+        return sink(fig, axes)
+
+
+def _save_kw(opts: ExportOptions, fig, dpi) -> dict:
+    kw = {"dpi": dpi, "bbox_inches": "tight", "pad_inches": 0.03}
+    if opts.style == "screen":
+        kw["facecolor"] = fig.get_facecolor()
+    return kw
 
 
 def export_figure(spec: FigureSpec, opts: ExportOptions, path: str) -> str:
-    def save(fig):
-        kw = {"dpi": opts.dpi, "bbox_inches": "tight", "pad_inches": 0.03}
-        if opts.style == "screen":
-            kw["facecolor"] = fig.get_facecolor()
-        fig.savefig(path, **kw)
+    def save(fig, _axes):
+        fig.savefig(path, **_save_kw(opts, fig, opts.dpi))
         return path
     return _draw(spec, opts, opts.dpi, save)
 
 
-def preview_png(spec: FigureSpec, opts: ExportOptions, dpi: float) -> bytes:
-    def save(fig):
+def _visible_ticks(ax, axis: str) -> list[float]:
+    lo, hi = sorted(ax.get_xlim() if axis == "x" else ax.get_ylim())
+    ticks = ax.get_xticks() if axis == "x" else ax.get_yticks()
+    tol = 1e-9 * max(abs(lo), abs(hi), 1e-300)
+    return [float(t) for t in ticks if lo - tol <= t <= hi + tol]
+
+
+def preview_png(spec: FigureSpec, opts: ExportOptions, dpi: float, with_ticks: bool = False):
+    """PNG bytes of the export at the given dpi (and, if asked, the tick positions matplotlib chose)."""
+    def save(fig, axes):
         buf = io.BytesIO()
-        kw = {"format": "png", "dpi": dpi, "bbox_inches": "tight", "pad_inches": 0.03}
-        if opts.style == "screen":
-            kw["facecolor"] = fig.get_facecolor()
-        fig.savefig(buf, **kw)
+        fig.savefig(buf, format="png", **_save_kw(opts, fig, dpi))
+        if with_ticks:
+            return buf.getvalue(), [(_visible_ticks(ax, "x"), _visible_ticks(ax, "y")) for ax in axes]
         return buf.getvalue()
     return _draw(spec, opts, dpi, save)
 
 
 # ---------------------------------------------------------------------------
+# small widgets
 def _fmt_lim(v) -> str:
-    return "" if v is None else f"{v:.4g}"
+    return "" if v is None else fmt_number(v)
 
 
 class _LimitEdit(QLineEdit):
     """Axis limit: a number, or empty for automatic."""
 
-    def __init__(self, placeholder: str):
+    def __init__(self, placeholder: str = "auto"):
         super().__init__()
         self.setPlaceholderText(placeholder)
         self.textChanged.connect(self._validate)
@@ -292,43 +398,79 @@ class _LimitEdit(QLineEdit):
         return not self.text().strip() or self.value() is not None
 
     def _validate(self):
-        self.setProperty("invalid", not self.ok())
-        self.style().unpolish(self)
-        self.style().polish(self)
+        _mark(self, not self.ok())
 
 
+def _mark(w, bad: bool):
+    w.setProperty("invalid", bad)
+    w.style().unpolish(w)
+    w.style().polish(w)
+
+
+class ColorButton(QToolButton):
+    """Swatch that opens a colour picker."""
+
+    def __init__(self, color: str, on_change):
+        super().__init__()
+        self._on_change = on_change
+        self.setFixedSize(30, 24)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("Line colour – click to choose")
+        self.clicked.connect(self._pick)
+        self.set_color(color)
+
+    def set_color(self, c: str):
+        self.color = QColor(c).name()
+        self.setStyleSheet(f"QToolButton {{ background: {self.color}; border: 1px solid {T.c('border2')}; "
+                           f"border-radius: 5px; }}")
+
+    def _pick(self):
+        c = QColorDialog.getColor(QColor(self.color), self, "Line colour")
+        if c.isValid():
+            self.set_color(c.name())
+            self._on_change()
+
+
+def _section(text: str) -> QLabel:
+    lab = QLabel(text.upper())
+    lab.setObjectName("sectionTitle")
+    lab.setContentsMargins(0, 8, 0, 0)
+    return lab
+
+
+# ---------------------------------------------------------------------------
 class ExportDialog(QDialog):
     """Export settings (left) with a live preview of the exported figure (right)."""
 
-    def __init__(self, parent, spec: FigureSpec, view=None, default_name: str = "figure"):
+    def __init__(self, parent, spec: FigureSpec, view=None, default_name: str = "figure", state: dict | None = None):
         super().__init__(parent)
         self.setWindowTitle("Export figure")
         self.spec = spec
         self.default_name = default_name
         self.defaults = defaults_from_spec(spec, view)
-        self.panels = copy.deepcopy(self.defaults)
+        self.panels = copy.deepcopy(state["panels"]) if state else copy.deepcopy(self.defaults)
+        self.suptitle_default = state.get("suptitle", "") if state else ""
         self.cur = 0
         self._loading = False
         self.settings = QSettings()
-        self.resize(1120, 700)
+        self.resize(1180, 720)
         root = QHBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(14)
 
         # ---------------- settings ----------------
         left = QWidget()
-        left.setFixedWidth(420)
+        left.setFixedWidth(450)
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.setSpacing(8)
         lv.addWidget(label("Export figure", "h3"))
-        lv.addWidget(label("Everything starts from the plot on screen and can be edited here.", "muted", wrap=True))
+        lv.addWidget(label("Every field starts from the plot on screen and can be edited.", "muted", wrap=True))
         prow = QHBoxLayout()
         self.panel_lab = label("Panel", "muted")
         self.panel_combo = QComboBox()
         for i, a in enumerate(spec.axes):
-            name = a.title or a.ylabel or f"Panel {i + 1}"
-            self.panel_combo.addItem(f"{i + 1} · {name}")
+            self.panel_combo.addItem(f"{i + 1} · {a.title or a.ylabel or 'Panel'}")
         prow.addWidget(self.panel_lab)
         prow.addWidget(self.panel_combo, 1)
         lv.addLayout(prow)
@@ -337,15 +479,20 @@ class ExportDialog(QDialog):
         self.panel_combo.setVisible(many)
         self.tabs = QTabWidget()
         lv.addWidget(self.tabs, 1)
-        self.tabs.addTab(self._page_tab(), "Page")
+        self.tabs.addTab(self._output_tab(), "Output")
         self.tabs.addTab(self._text_tab(), "Text")
         self.tabs.addTab(self._axes_tab(), "Axes")
+        self.tabs.addTab(self._lines_tab(), "Lines")
         self.tabs.addTab(self._legend_tab(), "Legend")
         brow = QHBoxLayout()
         self.b_reset = push("Reset to plot", icon_name="reset")
-        self.b_reset.setToolTip("Restore the labels, legend texts, scales and limits taken from the plot")
+        self.b_reset.setToolTip("Restore titles, labels, colours, styles, scales, ranges and ticks from the plot")
         self.b_reset.clicked.connect(self._reset_all)
         brow.addWidget(self.b_reset)
+        self.b_copy = push("Copy", icon_name="copy")
+        self.b_copy.setToolTip("Copy the exported figure (PNG at the chosen resolution) to the clipboard")
+        self.b_copy.clicked.connect(self._copy)
+        brow.addWidget(self.b_copy)
         brow.addStretch()
         cancel = push("Cancel")
         cancel.clicked.connect(self.reject)
@@ -379,7 +526,7 @@ class ExportDialog(QDialog):
         self.err.setStyleSheet(f"color: {T.c('danger')};")
         self.err.setVisible(False)
         rv.addWidget(self.err)
-        rv.addWidget(label("The preview is the exported figure scaled to fit; fonts and line widths are in true "
+        rv.addWidget(label("This is the exported figure, scaled to fit. Fonts and line widths keep their true "
                            "proportion to the page size.", "hint", wrap=True))
         root.addWidget(right, 1)
 
@@ -389,12 +536,13 @@ class ExportDialog(QDialog):
         self._timer.timeout.connect(self._update_preview)
         self.panel_combo.currentIndexChanged.connect(self._switch_panel)
         self._restore_settings()
+        self.suptitle.setText(self.suptitle_default)
         self._load_panel(0)
         self._schedule()
 
-    # -- tabs ----------------------------------------------------------------------
+    # -- tab construction -----------------------------------------------------------
     @staticmethod
-    def _form_page():
+    def _form():
         w = QWidget()
         f = QFormLayout(w)
         f.setContentsMargins(12, 12, 12, 12)
@@ -410,8 +558,8 @@ class ExportDialog(QDialog):
         sc.setWidget(w)
         return sc
 
-    def _page_tab(self):
-        w, f = self._form_page()
+    def _output_tab(self):
+        w, f = self._form()
         self.fmt = QComboBox()
         for t, _ in FORMATS:
             self.fmt.addItem(t)
@@ -422,18 +570,16 @@ class ExportDialog(QDialog):
         for t, _, _ in PRESETS:
             self.preset.addItem(t)
         self.w = QDoubleSpinBox()
-        self.w.setRange(1.0, 30.0)
-        self.w.setDecimals(2)
-        self.w.setSingleStep(0.1)
-        self.w.setSuffix(" in")
         self.h = QDoubleSpinBox()
-        self.h.setRange(1.0, 30.0)
-        self.h.setDecimals(2)
-        self.h.setSingleStep(0.1)
-        self.h.setSuffix(" in")
+        for sb in (self.w, self.h):
+            sb.setRange(1.0, 30.0)
+            sb.setDecimals(2)
+            sb.setSingleStep(0.1)
+            sb.setSuffix(" in")
         self.dpi = QSpinBox()
         self.dpi.setRange(72, 2400)
         self.dpi.setSingleStep(50)
+        self.dpi.setSuffix(" dpi")
         f.addRow("Format", self.fmt)
         f.addRow("Style", self.style_c)
         f.addRow("Size preset", self.preset)
@@ -450,7 +596,7 @@ class ExportDialog(QDialog):
         return self._scroll(w)
 
     def _text_tab(self):
-        w, f = self._form_page()
+        w, f = self._form()
         self.family = QComboBox()
         for t, _ in FAMILIES:
             self.family.addItem(t)
@@ -466,8 +612,8 @@ class ExportDialog(QDialog):
         self.line_w.setSuffix(" pt")
         self.ticks = QComboBox()
         self.ticks.addItems(["Inside", "Outside"])
-        self.grid = QCheckBox("Show grid lines")
-        self.titles = QCheckBox("Show panel titles")
+        self.minor = QCheckBox("Minor tick marks")
+        self.grid = QCheckBox("Grid lines")
         self.usetex = QCheckBox("Typeset all text with LaTeX")
         ok = latex_available()
         self.usetex.setEnabled(ok)
@@ -479,82 +625,138 @@ class ExportDialog(QDialog):
         f.addRow("Font size", self.font_size)
         f.addRow("Line width", self.line_w)
         f.addRow("Tick marks", self.ticks)
+        f.addRow("", self.minor)
         f.addRow("", self.grid)
-        f.addRow("", self.titles)
         f.addRow("", self.usetex)
-        hint = label(MATH_HINT + ("" if ok else " A LaTeX installation was not found, so the built-in math "
-                                              "renderer is used."), "hint", wrap=True)
+        hint = label(MATH_HINT + ("" if ok else " (No LaTeX installation was found, so Matplotlib's built-in "
+                                              "math renderer is used.)"), "hint", wrap=True)
         hint.setTextFormat(Qt.RichText)
         f.addRow("", hint)
         self.family.currentIndexChanged.connect(self._schedule)
         self.ticks.currentIndexChanged.connect(self._schedule)
         for wd in (self.font_size, self.line_w):
             wd.valueChanged.connect(self._schedule)
-        for wd in (self.grid, self.usetex):
+        for wd in (self.minor, self.grid, self.usetex):
             wd.toggled.connect(self._schedule)
-        self.titles.toggled.connect(self._titles_toggled)
         return self._scroll(w)
 
     def _axes_tab(self):
-        w, f = self._form_page()
+        w, f = self._form()
+        self.suptitle = QLineEdit()
+        self.suptitle.setPlaceholderText("none" + (f" – e.g. {self.spec.suptitle}" if self.spec.suptitle else ""))
+        self.suptitle_lab = QLabel("Figure title")
+        f.addRow(self.suptitle_lab, self.suptitle)
+        show_sup = len(self.spec.axes) > 1 or bool(self.spec.suptitle)
+        self.suptitle.setVisible(show_sup)
+        self.suptitle_lab.setVisible(show_sup)
         self.p_title = QLineEdit()
         self.p_x = QLineEdit()
         self.p_y = QLineEdit()
         self.p_y2 = QLineEdit()
         self.p_y2_lab = QLabel("Right y label")
+        self.p_clab = QLineEdit()
+        self.p_clab_lab = QLabel("Colour-bar label")
+        self.p_cmap = QComboBox()
+        self.p_cmap.addItems(CMAPS)
+        self.p_cmap_lab = QLabel("Colour map")
         f.addRow("Panel title", self.p_title)
         f.addRow("x label", self.p_x)
         f.addRow("y label", self.p_y)
         f.addRow(self.p_y2_lab, self.p_y2)
-        self.p_xscale, self.p_x0, self.p_x1, xrow = self._axis_row()
-        self.p_yscale, self.p_y0, self.p_y1, yrow = self._axis_row()
-        f.addRow(_section("x axis"))
-        f.addRow("Scale", self.p_xscale)
-        f.addRow("Range", xrow)
-        f.addRow(_section("y axis"))
-        f.addRow("Scale", self.p_yscale)
-        f.addRow("Range", yrow)
+        f.addRow(self.p_clab_lab, self.p_clab)
+        f.addRow(self.p_cmap_lab, self.p_cmap)
+        self.ax_w = {}
+        for axis in ("x", "y"):
+            f.addRow(_section(f"{axis} axis"))
+            sc = QComboBox()
+            for t, _ in SCALES:
+                sc.addItem(t)
+            lo, hi = _LimitEdit(), _LimitEdit()
+            rng = QWidget()
+            h = QHBoxLayout(rng)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(6)
+            h.addWidget(lo, 1)
+            h.addWidget(QLabel("to"))
+            h.addWidget(hi, 1)
+            b_auto = QPushButton("Auto")
+            b_auto.setToolTip("Fit this axis to the data")
+            h.addWidget(b_auto)
+            ticks = QLineEdit()
+            ticks.setPlaceholderText("automatic")
+            ticks.setToolTip("Tick positions, separated by commas (e.g. 0, 50, 100, 150 or 1e18, 1e19, 1e20).\n"
+                             "Grey text = chosen automatically; type to set your own, Auto to go back.")
+            trow = QWidget()
+            th = QHBoxLayout(trow)
+            th.setContentsMargins(0, 0, 0, 0)
+            th.setSpacing(6)
+            th.addWidget(ticks, 1)
+            t_auto = QPushButton("Auto")
+            t_auto.setToolTip("Let the ticks follow the range and scale automatically")
+            th.addWidget(t_auto)
+            f.addRow("Scale", sc)
+            f.addRow("Range", rng)
+            f.addRow("Ticks", trow)
+            self.ax_w[axis] = dict(scale=sc, lo=lo, hi=hi, ticks=ticks)
+            sc.currentIndexChanged.connect(lambda _=None, a=axis: self._scale_changed(a))
+            for e in (lo, hi):
+                e.textChanged.connect(self._panel_edited)
+            b_auto.clicked.connect(lambda _=None, a=lo, b=hi: (a.clear(), b.clear()))
+            ticks.textEdited.connect(lambda _=None, a=axis: self._ticks_typed(a))
+            t_auto.clicked.connect(lambda _=None, a=axis: self._ticks_auto(a))
         b = QPushButton("Reset this panel to the plot")
         b.setObjectName("ghost")
         b.clicked.connect(self._reset_panel)
         f.addRow("", b)
-        hint = label("Ranges start at the limits shown on screen. Clear a field (or press Auto) to let the "
-                     "axis fit the data.", "hint", wrap=True)
-        f.addRow("", hint)
-        for e in (self.p_title, self.p_x, self.p_y, self.p_y2, self.p_x0, self.p_x1, self.p_y0, self.p_y1):
+        f.addRow("", label("Titles appear only when you type one. Ranges start at the limits shown on screen; "
+                           "ticks follow the range and scale until you type your own.", "hint", wrap=True))
+        for e in (self.p_title, self.p_x, self.p_y, self.p_y2, self.p_clab):
             e.textChanged.connect(self._panel_edited)
-        self.p_xscale.currentIndexChanged.connect(lambda _: self._scale_changed("x"))
-        self.p_yscale.currentIndexChanged.connect(lambda _: self._scale_changed("y"))
+        self.p_cmap.currentIndexChanged.connect(self._panel_edited)
+        self.suptitle.textChanged.connect(self._schedule)
         return self._scroll(w)
 
-    def _axis_row(self):
-        sc = QComboBox()
-        for t, _ in SCALES:
-            sc.addItem(t)
-        a, b = _LimitEdit("auto"), _LimitEdit("auto")
-        row = QWidget()
-        h = QHBoxLayout(row)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(6)
-        h.addWidget(a, 1)
-        h.addWidget(QLabel("to"))
-        h.addWidget(b, 1)
-        auto = QPushButton("Auto")
-        auto.setToolTip("Fit this axis to the data")
-        auto.clicked.connect(lambda: (a.clear(), b.clear()))
-        h.addWidget(auto)
-        return sc, a, b, row
-
-    def _legend_tab(self):
+    def _lines_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(12, 12, 12, 12)
         v.setSpacing(8)
-        self.lg_show = QCheckBox("Show the legend in this panel")
-        v.addWidget(self.lg_show)
         f = QFormLayout()
         f.setVerticalSpacing(8)
         f.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        self.scheme = QComboBox()
+        self.scheme.addItem("Choose a colour scheme…")
+        self.scheme.addItem("As on screen")
+        for name in PALETTES:
+            self.scheme.addItem(name)
+        self.scheme_all = QCheckBox("Apply to all panels")
+        self.scheme_all.setChecked(True)
+        self.n_markers = QSpinBox()
+        self.n_markers.setRange(2, 200)
+        self.n_markers.setSuffix(" per curve")
+        self.n_markers.setToolTip("Markers are spread evenly along each curve (simulation curves have thousands "
+                                  "of points)")
+        f.addRow("Colours", self.scheme)
+        f.addRow("", self.scheme_all)
+        f.addRow("Markers", self.n_markers)
+        v.addLayout(f)
+        v.addWidget(_section("Curves"))
+        v.addWidget(label("Legend text, colour, line and marker of each curve. Clear the text to leave a curve "
+                          "out of the legend.", "hint", wrap=True))
+        self.curves_box = QWidget()
+        self.curves_lay = QVBoxLayout(self.curves_box)
+        self.curves_lay.setContentsMargins(0, 0, 0, 0)
+        self.curves_lay.setSpacing(8)
+        v.addWidget(self.curves_box)
+        v.addStretch()
+        self.curve_w: list[dict] = []
+        self.scheme.activated.connect(self._apply_scheme)
+        self.n_markers.valueChanged.connect(self._schedule)
+        return self._scroll(w)
+
+    def _legend_tab(self):
+        w, f = self._form()
+        self.lg_show = QCheckBox("Show the legend in this panel")
         self.lg_pos = QComboBox()
         for t, _, _ in LEGEND_POS:
             self.lg_pos.addItem(t)
@@ -564,72 +766,178 @@ class ExportDialog(QDialog):
         self.lg_scale.setRange(50, 150)
         self.lg_scale.setSingleStep(5)
         self.lg_scale.setSuffix(" % of font size")
-        self.lg_frame = QCheckBox("Draw a frame around the legend")
+        self.lg_frame = QCheckBox("Frame around the legend")
+
+        def em_spin(lo, hi, step, tip):
+            sb = QDoubleSpinBox()
+            sb.setRange(lo, hi)
+            sb.setDecimals(1)
+            sb.setSingleStep(step)
+            sb.setSuffix(" × font size")
+            sb.setToolTip(tip)
+            return sb
+        self.lg_handle = em_spin(0.0, 6.0, 0.25, "Length of the line sample in front of each entry – shorten it "
+                                                 "to make the legend narrower")
+        self.lg_gap = em_spin(0.0, 3.0, 0.1, "Space between the line sample and its text")
+        self.lg_rows = em_spin(0.0, 3.0, 0.1, "Vertical space between legend entries")
+        f.addRow("", self.lg_show)
         f.addRow("Position", self.lg_pos)
         f.addRow("Columns", self.lg_ncol)
         f.addRow("Text size", self.lg_scale)
+        f.addRow("Line length", self.lg_handle)
+        f.addRow("Gap to text", self.lg_gap)
+        f.addRow("Row spacing", self.lg_rows)
         f.addRow("", self.lg_frame)
-        v.addLayout(f)
-        v.addWidget(_section("Entries"))
-        v.addWidget(label("One line per curve. Clear a line to leave that curve out of the legend.", "hint",
-                          wrap=True))
-        self.entries_box = QWidget()
-        self.entries_lay = QFormLayout(self.entries_box)
-        self.entries_lay.setContentsMargins(0, 0, 0, 0)
-        self.entries_lay.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        v.addWidget(self.entries_box)
-        v.addStretch()
-        self.entry_edits: list[QLineEdit] = []
+        f.addRow("", label("The text of each entry, its colour and line style are set in the Lines tab.", "hint",
+                           wrap=True))
         self.lg_show.toggled.connect(self._panel_edited)
         self.lg_pos.currentIndexChanged.connect(self._schedule)
         self.lg_ncol.valueChanged.connect(self._schedule)
         self.lg_scale.valueChanged.connect(self._schedule)
         self.lg_frame.toggled.connect(self._schedule)
+        for sb in (self.lg_handle, self.lg_gap, self.lg_rows):
+            sb.valueChanged.connect(self._schedule)
         return self._scroll(w)
 
-    # -- panel state -------------------------------------------------------------------
+    # -- curves ------------------------------------------------------------------------------
+    def _build_curves(self, p: PanelOpts):
+        while self.curves_lay.count():
+            wd = self.curves_lay.takeAt(0).widget()
+            if wd is not None:
+                wd.hide()
+                wd.setParent(None)
+                wd.deleteLater()
+        self.curve_w = []
+        if not p.curves:
+            self.curves_lay.addWidget(label("This panel has no curves (e.g. a colour map).", "hint"))
+            return
+        for c in p.curves:
+            card = QFrame()
+            card.setObjectName("cardFlat")
+            g = QGridLayout(card)
+            g.setContentsMargins(10, 8, 10, 8)
+            g.setHorizontalSpacing(6)
+            g.setVerticalSpacing(6)
+            col = ColorButton(c.color, self._curves_edited)
+            text = QLineEdit(c.label)
+            text.setPlaceholderText("(not in legend)")
+            style = QComboBox()
+            for t, _ in LINE_STYLES:
+                style.addItem(t)
+            style.setCurrentIndex(max(0, [s for _, s in LINE_STYLES].index(c.style)
+                                      if c.style in [s for _, s in LINE_STYLES] else 0))
+            width = QDoubleSpinBox()
+            width.setRange(0.0, 8.0)
+            width.setDecimals(2)
+            width.setSingleStep(0.25)
+            width.setSpecialValueText("default")
+            width.setSuffix(" pt")
+            width.setValue(c.width)
+            marker = QComboBox()
+            for t, _ in MARKERS:
+                marker.addItem(t)
+            mk = [m for _, m in MARKERS]
+            marker.setCurrentIndex(mk.index(c.marker) if c.marker in mk else 0)
+            msize = QDoubleSpinBox()
+            msize.setRange(1.0, 20.0)
+            msize.setDecimals(1)
+            msize.setSuffix(" pt")
+            msize.setValue(c.msize)
+            msize.setToolTip("Marker size")
+            g.addWidget(col, 0, 0)
+            g.addWidget(text, 0, 1, 1, 3)
+            g.addWidget(QLabel("Line"), 1, 0)
+            g.addWidget(style, 1, 1)
+            g.addWidget(width, 1, 2, 1, 2)
+            g.addWidget(QLabel("Marker"), 2, 0)
+            g.addWidget(marker, 2, 1)
+            g.addWidget(msize, 2, 2, 1, 2)
+            g.setColumnStretch(1, 1)
+            g.setColumnStretch(2, 1)
+            text.textChanged.connect(self._curves_edited)
+            style.currentIndexChanged.connect(self._curves_edited)
+            width.valueChanged.connect(self._curves_edited)
+            marker.currentIndexChanged.connect(self._curves_edited)
+            msize.valueChanged.connect(self._curves_edited)
+            self.curves_lay.addWidget(card)
+            self.curve_w.append(dict(color=col, text=text, style=style, width=width, marker=marker, msize=msize))
+
+    def _curves_edited(self, *_):
+        if self._loading:
+            return
+        self._store_panel()
+        self._schedule()
+
+    def _apply_scheme(self, idx: int):
+        if idx <= 0:
+            return
+        name = self.scheme.itemText(idx)
+        self._store_panel()
+        targets = range(len(self.panels)) if self.scheme_all.isChecked() else [self.cur]
+        for i in targets:
+            p = self.panels[i]
+            if name == "As on screen":
+                for c, d in zip(p.curves, self.defaults[i].curves):
+                    c.color, c.style = d.color, d.style
+                continue
+            cols, styles = palette_colors(name, len(p.curves))
+            for k, c in enumerate(p.curves):
+                c.color = cols[k]
+                if styles is not None:
+                    c.style = styles[k]
+        self.scheme.setCurrentIndex(0)
+        self._load_panel(self.cur)
+        self._schedule()
+
+    # -- panel state ---------------------------------------------------------------------------
     def _load_panel(self, i: int):
         self._loading = True
         self.cur = i
         p = self.panels[i]
         a = self.spec.axes[i]
         self.p_title.setText(p.title)
-        self.p_title.setEnabled(self.titles.isChecked())
+        self.p_title.setPlaceholderText("none" + (f" – e.g. {p.title_hint}" if p.title_hint else ""))
         self.p_x.setText(p.xlabel)
         self.p_y.setText(p.ylabel)
         has2 = p.ylabel2 is not None
         self.p_y2.setText(p.ylabel2 or "")
-        self.p_y2.setVisible(has2)
-        self.p_y2_lab.setVisible(has2)
-        self.p_xscale.setCurrentIndex([s for _, s in SCALES].index(p.xscale))
-        self.p_yscale.setCurrentIndex([s for _, s in SCALES].index(p.yscale))
-        self.p_x0.setText(_fmt_lim(p.xlim[0]))
-        self.p_x1.setText(_fmt_lim(p.xlim[1]))
-        self.p_y0.setText(_fmt_lim(p.ylim[0]))
-        self.p_y1.setText(_fmt_lim(p.ylim[1]))
-        is_image = a.image is not None
-        for wd in (self.p_yscale,):
-            wd.setEnabled(not is_image)
-        # legend entries
-        while self.entries_lay.rowCount():
-            self.entries_lay.removeRow(0)
-        self.entry_edits = []
-        ser = list(a.series) + (list(a.twin.series) if a.twin is not None else [])
-        for k, (se, txt) in enumerate(zip(ser, p.labels)):
-            e = QLineEdit(txt)
-            e.setPlaceholderText("(not in legend)")
-            e.textChanged.connect(self._panel_edited)
-            sw = QLabel()
-            sw.setFixedSize(22, 4)
-            col = se.color or T.c("series")[k % len(T.c("series"))]
-            sw.setStyleSheet(f"background: {col}; border-radius: 2px;")
-            self.entries_lay.addRow(sw, e)
-            self.entry_edits.append(e)
-        if not ser:
-            self.entries_lay.addRow(label("This panel has no curves (e.g. a colour map).", "hint"))
+        for wd in (self.p_y2, self.p_y2_lab):
+            wd.setVisible(has2)
+        img = a.image is not None
+        for wd in (self.p_clab, self.p_clab_lab, self.p_cmap, self.p_cmap_lab):
+            wd.setVisible(img)
+        self.p_clab.setText(p.clabel or "")
+        if p.cmap in CMAPS:
+            self.p_cmap.setCurrentIndex(CMAPS.index(p.cmap))
+        elif p.cmap:
+            self.p_cmap.addItem(p.cmap)
+            self.p_cmap.setCurrentIndex(self.p_cmap.count() - 1)
+        for axis in ("x", "y"):
+            wd = self.ax_w[axis]
+            wd["scale"].setCurrentIndex([s for _, s in SCALES].index(getattr(p, f"{axis}scale")))
+            lo, hi = getattr(p, f"{axis}lim")
+            wd["lo"].setText(_fmt_lim(lo))
+            wd["hi"].setText(_fmt_lim(hi))
+            self._show_ticks(axis, getattr(p, f"{axis}ticks"), getattr(p, f"{axis}ticks_auto"))
+        self.ax_w["y"]["scale"].setEnabled(not img)
+        self._build_curves(p)
         self.lg_show.setChecked(p.legend)
-        self.lg_show.setEnabled(bool(ser))
+        self.lg_show.setEnabled(bool(p.curves))
         self._loading = False
+
+    def _show_ticks(self, axis: str, text: str, auto: bool):
+        e = self.ax_w[axis]["ticks"]
+        e.blockSignals(True)
+        e.setText(text)
+        e.blockSignals(False)
+        e.setStyleSheet(f"color: {T.c('text3')};" if auto else "")
+        bad = False
+        if not auto:
+            try:
+                parse_ticks(text)
+            except ValueError:
+                bad = True
+        _mark(e, bad)
 
     def _store_panel(self):
         p = self.panels[self.cur]
@@ -638,18 +946,31 @@ class ExportDialog(QDialog):
         p.ylabel = self.p_y.text()
         if p.ylabel2 is not None:
             p.ylabel2 = self.p_y2.text()
-        p.xscale = SCALES[self.p_xscale.currentIndex()][1]
-        p.yscale = SCALES[self.p_yscale.currentIndex()][1]
-        p.xlim = (self.p_x0.value(), self.p_x1.value())
-        p.ylim = (self.p_y0.value(), self.p_y1.value())
+        if p.clabel is not None:
+            p.clabel = self.p_clab.text()
+        if p.cmap is not None:
+            p.cmap = self.p_cmap.currentText()
+        for axis in ("x", "y"):
+            wd = self.ax_w[axis]
+            setattr(p, f"{axis}scale", SCALES[wd["scale"].currentIndex()][1])
+            setattr(p, f"{axis}lim", (wd["lo"].value(), wd["hi"].value()))
+            if not getattr(p, f"{axis}ticks_auto"):
+                setattr(p, f"{axis}ticks", wd["ticks"].text())
         p.legend = self.lg_show.isChecked()
-        p.labels = [e.text() for e in self.entry_edits]
+        for c, wd in zip(p.curves, self.curve_w):
+            c.label = wd["text"].text()
+            c.color = wd["color"].color
+            c.style = LINE_STYLES[wd["style"].currentIndex()][1]
+            c.width = wd["width"].value()
+            c.marker = MARKERS[wd["marker"].currentIndex()][1]
+            c.msize = wd["msize"].value()
 
     def _switch_panel(self, i):
         if i < 0:
             return
         self._store_panel()
         self._load_panel(i)
+        self._schedule()
 
     def _panel_edited(self, *_):
         if self._loading:
@@ -657,17 +978,56 @@ class ExportDialog(QDialog):
         self._store_panel()
         self._schedule()
 
+    def _ticks_typed(self, axis: str):
+        p = self.panels[self.cur]
+        setattr(p, f"{axis}ticks_auto", False)
+        self._show_ticks(axis, self.ax_w[axis]["ticks"].text(), False)
+        self._panel_edited()
+
+    def _ticks_auto(self, axis: str):
+        setattr(self.panels[self.cur], f"{axis}ticks_auto", True)
+        self._show_ticks(axis, self.ax_w[axis]["ticks"].text(), True)
+        self._panel_edited()
+
     def _scale_changed(self, axis: str):
         if self._loading:
             return
-        log = (self.p_xscale if axis == "x" else self.p_yscale).currentIndex() == 1
-        lo, hi = (self.p_x0, self.p_x1) if axis == "x" else (self.p_y0, self.p_y1)
-        if log:                                   # a log axis cannot start at or below zero
-            for e in (lo, hi):
-                v = e.value()
-                if v is not None and v <= 0:
-                    e.clear()
+        wd = self.ax_w[axis]
+        if wd["scale"].currentIndex() == 1:
+            lo, hi = self._log_range(axis)
+            if lo is not None:
+                wd["lo"].setText(fmt_number(lo))
+                wd["hi"].setText(fmt_number(hi))
+            else:                                      # a log axis cannot reach zero or below
+                for e in (wd["lo"], wd["hi"]):
+                    v = e.value()
+                    if v is not None and v <= 0:
+                        e.clear()
+        else:                                          # back to linear: fit the data again
+            wd["lo"].clear()
+            wd["hi"].clear()
+        setattr(self.panels[self.cur], f"{axis}ticks_auto", True)   # ticks of the other scale make no sense
+        self._show_ticks(axis, wd["ticks"].text(), True)
         self._panel_edited()
+
+    def _log_range(self, axis: str):
+        """Sensible log range for the curves of this panel: whole decades, at most six decades below the
+        largest value (simulation data often contain tiny values near zero)."""
+        a = self.spec.axes[self.cur]
+        vals = []
+        for se in a.series:
+            v = np.asarray(se.x if axis == "x" else se.y, dtype=float)
+            v = v[np.isfinite(v) & (v > 0)]
+            if v.size:
+                vals.append((float(v.min()), float(v.max())))
+        if not vals:
+            return None, None
+        vmin, vmax = min(v[0] for v in vals), max(v[1] for v in vals)
+        hi = 10 ** math.ceil(math.log10(vmax))
+        lo = 10 ** math.floor(math.log10(max(vmin, vmax * 1e-6)))
+        if lo >= hi:
+            lo = hi / 10
+        return lo, hi
 
     def _reset_panel(self):
         self.panels[self.cur] = copy.deepcopy(self.defaults[self.cur])
@@ -676,22 +1036,17 @@ class ExportDialog(QDialog):
 
     def _reset_all(self):
         self.panels = copy.deepcopy(self.defaults)
+        self.suptitle.clear()
         self._load_panel(self.cur)
-        self._schedule()
-
-    def _titles_toggled(self, on):
-        self.p_title.setEnabled(on)
         self._schedule()
 
     def _preset(self, i):
         _, w, h = PRESETS[i]
         if w is not None:
-            self.w.blockSignals(True)
-            self.h.blockSignals(True)
-            self.w.setValue(w)
-            self.h.setValue(h)
-            self.w.blockSignals(False)
-            self.h.blockSignals(False)
+            for sb, val in ((self.w, w), (self.h, h)):
+                sb.blockSignals(True)
+                sb.setValue(val)
+                sb.blockSignals(False)
             self._schedule()
 
     def _size_edited(self, *_):
@@ -702,7 +1057,7 @@ class ExportDialog(QDialog):
         self.preset.blockSignals(False)
         self._schedule()
 
-    # -- options -------------------------------------------------------------------------
+    # -- options -----------------------------------------------------------------------------
     def options(self) -> ExportOptions:
         self._store_panel()
         return ExportOptions(
@@ -710,64 +1065,80 @@ class ExportDialog(QDialog):
             w=self.w.value(), h=self.h.value(), dpi=self.dpi.value(), font_size=self.font_size.value(),
             family=FAMILIES[self.family.currentIndex()][1], usetex=self.usetex.isChecked() and self.usetex.isEnabled(),
             line_width=self.line_w.value(), ticks="in" if self.ticks.currentIndex() == 0 else "out",
-            grid=self.grid.isChecked(), titles=self.titles.isChecked(), legend_pos=self.lg_pos.currentIndex(),
+            minor_ticks=self.minor.isChecked(), grid=self.grid.isChecked(), suptitle=self.suptitle.text(),
+            markers_per_curve=self.n_markers.value(), legend_pos=self.lg_pos.currentIndex(),
             legend_ncol=self.lg_ncol.value(), legend_frame=self.lg_frame.isChecked(),
-            legend_scale=self.lg_scale.value() / 100.0, panels=copy.deepcopy(self.panels))
+            legend_scale=self.lg_scale.value() / 100.0, legend_handle=self.lg_handle.value(),
+            legend_gap=self.lg_gap.value(), legend_rows=self.lg_rows.value(), panels=copy.deepcopy(self.panels))
+
+    def state(self) -> dict:
+        """Plot-specific edits, so reopening the dialog for the same plot keeps them."""
+        self._store_panel()
+        return {"panels": copy.deepcopy(self.panels), "suptitle": self.suptitle.text()}
 
     def ext(self) -> str:
         return FORMATS[self.fmt.currentIndex()][1]
 
+    _SETTINGS = (("fmt", 0, int), ("style", 0, int), ("preset", 0, int), ("w", 3.4, float), ("h", 2.6, float),
+                 ("dpi", 600, int), ("family", 0, int), ("font", 9.0, float), ("line_width", 1.5, float),
+                 ("ticks", 0, int), ("minor", True, "bool"), ("grid", False, "bool"), ("usetex", False, "bool"),
+                 ("legend_pos", 0, int), ("legend_ncol", 1, int), ("legend_scale", 85, int),
+                 ("legend_frame", False, "bool"), ("markers", 12, int), ("legend_handle", 2.0, float),
+                 ("legend_gap", 0.8, float), ("legend_rows", 0.5, float))
+
+    def _widgets_for_settings(self):
+        return {"fmt": self.fmt, "style": self.style_c, "preset": self.preset, "w": self.w, "h": self.h,
+                "dpi": self.dpi, "family": self.family, "font": self.font_size, "line_width": self.line_w,
+                "ticks": self.ticks, "minor": self.minor, "grid": self.grid, "usetex": self.usetex,
+                "legend_pos": self.lg_pos, "legend_ncol": self.lg_ncol, "legend_scale": self.lg_scale,
+                "legend_frame": self.lg_frame, "markers": self.n_markers, "legend_handle": self.lg_handle,
+                "legend_gap": self.lg_gap, "legend_rows": self.lg_rows}
+
     def _restore_settings(self):
-        s = self.settings
-
-        def get(key, default, cast):
-            try:
-                v = s.value(f"export/{key}", default)
-                return cast(v) if v is not None else default
-            except (TypeError, ValueError):
-                return default
-
-        def as_bool(v):
-            return v if isinstance(v, bool) else str(v).lower() == "true"
-
-        for wd in (self.fmt, self.style_c, self.preset, self.family, self.ticks, self.lg_pos, self.w, self.h,
-                   self.dpi, self.font_size, self.line_w, self.lg_ncol, self.lg_scale):
+        wmap = self._widgets_for_settings()
+        for wd in wmap.values():
             wd.blockSignals(True)
-        self.fmt.setCurrentIndex(get("fmt", 0, int))
-        self.style_c.setCurrentIndex(get("style", 0, int))
-        self.preset.setCurrentIndex(get("preset", 0, int))
-        self.w.setValue(get("w", 3.4, float))
-        self.h.setValue(get("h", 2.6, float))
-        self.dpi.setValue(get("dpi", 600, int))
-        self.family.setCurrentIndex(get("family", 0, int))
-        self.font_size.setValue(get("font", 9.0, float))
-        self.line_w.setValue(get("line_width", 1.5, float))
-        self.ticks.setCurrentIndex(get("ticks", 0, int))
-        self.grid.setChecked(get("grid", False, as_bool))
-        self.titles.setChecked(get("titles", False, as_bool))
-        self.usetex.setChecked(get("usetex", False, as_bool) and self.usetex.isEnabled())
-        self.lg_pos.setCurrentIndex(get("legend_pos", 0, int))
-        self.lg_ncol.setValue(get("legend_ncol", 1, int))
-        self.lg_scale.setValue(get("legend_scale", 85, int))
-        self.lg_frame.setChecked(get("legend_frame", False, as_bool))
-        for wd in (self.fmt, self.style_c, self.preset, self.family, self.ticks, self.lg_pos, self.w, self.h,
-                   self.dpi, self.font_size, self.line_w, self.lg_ncol, self.lg_scale):
+        for key, default, cast in self._SETTINGS:
+            raw = self.settings.value(f"export/{key}", default)
+            try:
+                if cast == "bool":
+                    val = raw if isinstance(raw, bool) else str(raw).lower() == "true"
+                else:
+                    val = cast(raw)
+            except (TypeError, ValueError):
+                val = default
+            wd = wmap[key]
+            if isinstance(wd, QComboBox):
+                wd.setCurrentIndex(max(0, min(int(val), wd.count() - 1)))
+            elif isinstance(wd, QCheckBox):
+                wd.setChecked(bool(val) and wd.isEnabled())
+            else:
+                wd.setValue(val)
+        for wd in wmap.values():
             wd.blockSignals(False)
 
     def _save_settings(self):
-        s = self.settings
-        for key, val in (("fmt", self.fmt.currentIndex()), ("style", self.style_c.currentIndex()),
-                         ("preset", self.preset.currentIndex()), ("w", self.w.value()), ("h", self.h.value()),
-                         ("dpi", self.dpi.value()), ("family", self.family.currentIndex()),
-                         ("font", self.font_size.value()), ("line_width", self.line_w.value()),
-                         ("ticks", self.ticks.currentIndex()), ("grid", self.grid.isChecked()),
-                         ("titles", self.titles.isChecked()), ("usetex", self.usetex.isChecked()),
-                         ("legend_pos", self.lg_pos.currentIndex()), ("legend_ncol", self.lg_ncol.value()),
-                         ("legend_scale", self.lg_scale.value()), ("legend_frame", self.lg_frame.isChecked())):
-            s.setValue(f"export/{key}", val)
+        for key, wd in self._widgets_for_settings().items():
+            if isinstance(wd, QComboBox):
+                val = wd.currentIndex()
+            elif isinstance(wd, QCheckBox):
+                val = wd.isChecked()
+            else:
+                val = wd.value()
+            self.settings.setValue(f"export/{key}", val)
+
+    def _invalid_fields(self):
+        bad = [e for axis in ("x", "y") for e in (self.ax_w[axis]["lo"], self.ax_w[axis]["hi"]) if not e.ok()]
+        for axis in ("x", "y"):
+            if not getattr(self.panels[self.cur], f"{axis}ticks_auto"):
+                try:
+                    parse_ticks(self.ax_w[axis]["ticks"].text())
+                except ValueError:
+                    bad.append(self.ax_w[axis]["ticks"])
+        return bad
 
     def _accept(self):
-        bad = [e for e in (self.p_x0, self.p_x1, self.p_y0, self.p_y1) if not e.ok()]
+        bad = self._invalid_fields()
         if bad:
             self.tabs.setCurrentIndex(2)
             bad[0].setFocus()
@@ -775,7 +1146,22 @@ class ExportDialog(QDialog):
         self._save_settings()
         self.accept()
 
-    # -- preview ---------------------------------------------------------------------------
+    def _copy(self):
+        opts = self.options()
+        try:
+            data = preview_png(self.spec, opts, min(opts.dpi, 600))
+        except Exception as exc:  # pragma: no cover - same errors as the preview
+            self.err.setText(f"Cannot copy: {exc}")
+            self.err.setVisible(True)
+            return
+        img = QImage.fromData(data, "PNG")
+        md = QMimeData()
+        md.setImageData(img)
+        QGuiApplication.clipboard().setMimeData(md)
+        self.size_lab.setText("Copied to the clipboard")
+        QTimer.singleShot(1500, self._schedule)
+
+    # -- preview -----------------------------------------------------------------------------
     def _schedule(self, *_):
         if not self._loading:
             self._timer.start()
@@ -790,31 +1176,33 @@ class ExportDialog(QDialog):
         self.size_lab.setText(f"{opts.w:g} × {opts.h:g} in  ·  {fmt}" +
                               (f"  ·  {px[0]} × {px[1]} px" if opts.fmt in ("png", "tiff") else "  ·  vector"))
         try:
-            data = preview_png(self.spec, opts, pdpi * dpr)
+            data, ticks = preview_png(self.spec, opts, pdpi * dpr, with_ticks=True)
         except Exception as exc:  # invalid LaTeX, impossible limits …
             msg = (str(exc).strip().splitlines() or [type(exc).__name__])
-            detail = msg[0] if "Parse" in type(exc).__name__ or "Expected" in msg[0] else msg[-1]
-            hint = ("A label has invalid math between $…$ – check braces and commands. "
-                    if ("Parse" in type(exc).__name__ or "Expected" in detail or "Unknown symbol" in detail) else
-                    "Cannot draw the figure with these settings: ")
-            self.err.setText(hint + detail)
+            math_err = "Parse" in type(exc).__name__ or "Expected" in msg[0] or "Unknown symbol" in msg[0]
+            self.err.setText(("A label has invalid math between $…$ – check braces and commands. " + msg[0])
+                             if math_err else "Cannot draw the figure with these settings: " + msg[-1])
             self.err.setVisible(True)
             self.b_save.setEnabled(False)
+            self.b_copy.setEnabled(False)
             return
+        # automatic ticks: show what matplotlib chose for this page size, range and scale
+        for i, (xt, yt) in enumerate(ticks[:len(self.panels)]):
+            p = self.panels[i]
+            for axis, vals in (("x", xt), ("y", yt)):
+                if getattr(p, f"{axis}ticks_auto"):
+                    txt = ", ".join(fmt_number(v) for v in vals)
+                    setattr(p, f"{axis}ticks", txt)
+                    if i == self.cur:
+                        self._show_ticks(axis, txt, True)
         pm = QPixmap()
         pm.loadFromData(data, "PNG")
         pm.setDevicePixelRatio(dpr)
         self.preview.setPixmap(pm)
         self.err.setVisible(False)
-        self.b_save.setEnabled(True)
+        self.b_save.setEnabled(not self._invalid_fields())
+        self.b_copy.setEnabled(True)
 
     def resizeEvent(self, e):  # noqa: N802
         super().resizeEvent(e)
         self._schedule()
-
-
-def _section(text: str) -> QLabel:
-    lab = QLabel(text.upper())
-    lab.setObjectName("sectionTitle")
-    lab.setContentsMargins(0, 8, 0, 0)
-    return lab

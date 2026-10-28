@@ -131,21 +131,27 @@ Every plot has: reset view (also double-click), pan, zoom-to-rectangle, mouse-wh
 export button). Exported figures are re-rendered with Matplotlib – not screenshots.
 
 **Export figure** opens a dialog with a **live preview** of the file you are about to save; every change is
-shown immediately. All fields start from the plot on screen (its labels, legend entries, axis scales and the
-axis limits currently shown) and can be edited:
+shown immediately. All fields start from the plot on screen – labels, legend texts, curve colours and styles,
+axis scales, the range currently shown and the tick positions – and can be edited:
 
 | Tab | Options |
 |---|---|
-| Page | PNG, PDF, SVG, EPS or TIFF · single-column, double-column, slide, square or custom size · resolution · white publication, dark presentation or on-screen style |
-| Text | Font (sans-serif Arial/Helvetica, serif Times, LaTeX-look Computer Modern, STIX, DejaVu) · font size · line width · ticks inside/outside · grid · panel titles · *Typeset all text with LaTeX* (when a LaTeX installation with dvipng is found) |
-| Axes | Per panel: title, x label, y label (and right-hand y label) · linear or logarithmic x and y · x and y range (**Auto** fits the data) |
-| Legend | Show/hide per panel · position (best, any corner or edge, outside right, above the plot) · columns · text size · frame · the text of every entry (clear an entry to leave that curve out) |
+| Output | PNG, PDF, SVG, EPS or TIFF · single-column, double-column, slide, square or custom size · resolution · white publication, dark presentation or on-screen style |
+| Text | Font (sans-serif Arial/Helvetica, serif Times, LaTeX-look Computer Modern, STIX, DejaVu) · font size · default line width · ticks inside/outside · minor ticks · grid · *Typeset all text with LaTeX* (when a LaTeX installation with dvipng is found) |
+| Axes | Figure title (multi-panel plots) and panel title – shown only when you type one, otherwise no space is reserved · x label, y label (and right-hand y label, colour-bar label and colour map where present) · linear or logarithmic x and y · range (**Auto** fits the data) · tick positions as a comma-separated list |
+| Lines | Colour scheme for all curves (publication, colour-blind safe, Matplotlib, viridis, black & white with line styles) · per curve: legend text, colour picker, line style (solid, dashed, dotted, dash-dot, none), width, marker and marker size · markers per curve |
+| Legend | Show/hide per panel · position (best, any corner or edge, outside right, above the plot) · columns · text size · length of the line sample · gap to the text · row spacing · frame |
+
+Ticks shown in grey are chosen automatically and follow the range and scale; type your own list to fix them
+and press **Auto** to go back. Switching an axis to logarithmic picks a whole-decade range covering the data
+(at most six decades below the maximum); switching back to linear fits the data again.
 
 Labels accept LaTeX math between dollar signs, for example `$V_\mathrm{gap}$ (kV)`, `$n_e$ [m$^{-3}$]` or
 `$E/N$ (Td)`; subscripts in the plot's own labels (V_gap, nₑ, m⁻³) are converted to this form automatically.
 If a label contains invalid math the preview says so and *Save* stays disabled until it is fixed.
-**Reset to plot** restores everything taken from the plot; page, font and legend settings are remembered
-between exports.
+**Copy** puts the exported figure on the clipboard, **Reset to plot** restores everything taken from the plot.
+Your edits are kept when you reopen the dialog for the same plot, and output, font and legend settings are
+remembered between exports.
 
 ## 8. Parameter sweeps
 

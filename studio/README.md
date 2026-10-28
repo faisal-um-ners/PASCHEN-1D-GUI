@@ -5,7 +5,7 @@
 <a href="https://github.com/pbis-umich/PASCHEN-1D">PASCHEN-1D</a> gas-discharge solver</b><br>
 Build a model with guided forms · check it · run it with live plots · analyse and export the results – no code required.</p>
 
-<p align="center"><img src="docs/images/model_builder.png" alt="PASCHEN-1D Studio – Model Builder" width="900"></p>
+<p align="center"><img src="docs/images/model_circuit.png" alt="PASCHEN-1D Studio – Model Builder with the external-circuit diagram" width="900"></p>
 
 PASCHEN-1D Studio is an **add-on** that lives in its own folder (`studio/`) inside PASCHEN-1D.
 It never modifies the solver: it reads PASCHEN-1D's own configuration classes to build its forms and

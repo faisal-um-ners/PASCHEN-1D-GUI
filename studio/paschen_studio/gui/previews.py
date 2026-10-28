@@ -263,9 +263,10 @@ class CircuitDiagram(QWidget):
         has_cext = "C_ext" in els
         dielectric = float(v.get("geometry.l") or 0) > 0
         # x positions: fit everything (plus the plasma label) into the widget width
-        units = len(series) + 0.35 + len(shunts) + (1.0 if has_rm else 0.0) + (0.8 if has_cext else 0.0) + 0.8
-        x0 = 54
-        step = max(56.0, min(130.0, (W - x0 - 150) / max(units, 1.0)))
+        units = (len(series) + 0.35 + len(shunts) + 0.5 * max(0, len(shunts) - 1) + (1.0 if has_rm else 0.0)
+                 + (0.8 if has_cext else 0.0) + 0.8)
+        x0 = 118                         # room for the source label on its left
+        step = max(36.0, min(130.0, (W - x0 - 140) / max(units, 1.0)))
         xs = x0
         p.setPen(QPen(wire, 1.6))
         # source
@@ -286,10 +287,14 @@ class CircuitDiagram(QWidget):
             p.setPen(QPen(wire, 1.6))
             p.drawLine(QPointF(x, top), QPointF(x + step * 0.5, top))
             x += step * 0.5
-            self._shunt(p, name, x, top, gnd, label_left=(name == "C_p"))
+            # the first shunt is labelled on its left; a second one (Lp next to Cp) on its right, with extra
+            # room after it, so no label touches a neighbouring element
+            right = name != shunts[0]
+            self._shunt(p, name, x, top, gnd, label_left=not right)
+            gap = step * (1.0 if right else 0.5)
             p.setPen(QPen(wire, 1.6))
-            p.drawLine(QPointF(x, top), QPointF(x + step * 0.5, top))
-            x += step * 0.5
+            p.drawLine(QPointF(x, top), QPointF(x + gap, top))
+            x += gap
         if has_rm:
             x2 = x + step
             self._series(p, "R_m", x, x2, top)
@@ -299,7 +304,8 @@ class CircuitDiagram(QWidget):
             p.setPen(QPen(wire, 1.6))
             p.drawLine(QPointF(x, top), QPointF(x + step * 0.8, top))
             x += step * 0.8
-            self._shunt(p, "C_ext", x, top, gnd, label_left=True)
+            # below the Lp label when both sit side by side
+            self._shunt(p, "C_ext", x, top, gnd, label_left=True, label_dy=48.0 if len(shunts) > 1 else 0.0)
         p.setPen(QPen(wire, 1.6))
         p.drawLine(QPointF(x, top), QPointF(x + step * 0.8, top))
         x += step * 0.8
@@ -359,10 +365,9 @@ class CircuitDiagram(QWidget):
         self._body(p, name[0], QPointF(mid - 18, y), QPointF(mid + 18, y))
         self._label(p, mid, y + 12, name.replace("_", ""), self._text, True, self._value(name))
 
-    def _shunt(self, p, name, x, y1, y2, label_left: bool = False):
+    def _shunt(self, p, name, x, y1, y2, label_left: bool = False, label_dy: float = 0.0):
         st = self._state(name)
         mid = (y1 + y2) / 2
-        lx = x - 44 if label_left else x + 44
         if st == "open":
             p.setPen(QPen(self._ghost, 1.2, Qt.DashLine))
             p.drawLine(QPointF(x, y1), QPointF(x, y1 + 18))
@@ -378,7 +383,20 @@ class CircuitDiagram(QWidget):
         p.setBrush(Qt.NoBrush)
         p.setPen(QPen(QColor(T.c("text")), 1.8))
         self._body(p, name[0], QPointF(x, mid - 18), QPointF(x, mid + 18))
-        self._label(p, lx, mid - 14, name.replace("_", ""), self._text, True, self._value(name))
+        # label hugs its own element (right-aligned on the left side, left-aligned on the right side)
+        y = mid - 14 + label_dy
+        box = QRectF(x - 16 - 90, y, 90, 16) if label_left else QRectF(x + 16, y, 90, 16)
+        align = (Qt.AlignRight if label_left else Qt.AlignLeft) | Qt.AlignVCenter
+        f = QFont(self.font())
+        f.setBold(True)
+        p.setFont(f)
+        p.setPen(self._text)
+        p.drawText(box, align, name.replace("_", ""))
+        f.setBold(False)
+        f.setPointSizeF(f.pointSizeF() - 1.0)
+        p.setFont(f)
+        p.setPen(self._text2)
+        p.drawText(QRectF(box.left(), y + 15, box.width(), 16), align, self._value(name))
 
     def _body(self, p, kind, a: QPointF, b: QPointF):
         """Draw element body between a and b (horizontal or vertical)."""
@@ -425,7 +443,19 @@ class CircuitDiagram(QWidget):
         p.setBrush(Qt.NoBrush)
         p.drawPath(path)
         wt = self.v.get("waveform.waveform_type", "")
-        self._label(p, x + 64, mid - 16, "V_app(t)", self._text, True, SC.choice_label(wt).split(" (")[0])
+        # label to the LEFT of the source, so it can never collide with a shunt element (Cp, Lp) on the right
+        f = QFont(self.font())
+        f.setBold(True)
+        p.setFont(f)
+        p.setPen(self._text)
+        box = QRectF(x - 24 - 110, mid - 4, 110, 16)
+        p.drawText(box, Qt.AlignRight | Qt.AlignVCenter, "V_app(t)")
+        f.setBold(False)
+        f.setPointSizeF(f.pointSizeF() - 1.0)
+        p.setFont(f)
+        p.setPen(self._text2)
+        p.drawText(QRectF(box.left(), box.top() + 15, box.width(), 16), Qt.AlignRight | Qt.AlignVCenter,
+                   SC.choice_label(wt).split(" (")[0])
 
     def _plasma(self, p, x, y1, y2, dielectric):
         mid = (y1 + y2) / 2
