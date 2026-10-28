@@ -1,0 +1,12 @@
+# PASCHEN-1D Studio – local, generated or machine-specific files
+.venv/
+.cache/
+runs/
+models/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+PASCHEN-1D Studio.app/
+.studio_jobs/
+.DS_Store

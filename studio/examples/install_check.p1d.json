@@ -1,0 +1,17 @@
+{
+  "format": "paschen-studio-model/1",
+  "studio_version": "1.0.0",
+  "solver_version": "1.1.0",
+  "title": "Installation check (2 ns of the N2 DBD)",
+  "description": "Tiny run used by the installers to verify that PASCHEN-1D runs and to pre-compile the Numba kernels.",
+  "base_case": "config_case_nitrogen_pulsed_discharge",
+  "overrides": {
+    "numerics.Nt": 2000,
+    "numerics.Nx": 200,
+    "output.save_every": 20,
+    "run.T_total": 1.999e-09,
+    "run.run_name": "install_check"
+  },
+  "created": "2026-10-27T22:27:05",
+  "modified": "2026-10-27T22:27:07"
+}

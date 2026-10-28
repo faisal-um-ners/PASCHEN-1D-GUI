@@ -1,0 +1,17 @@
+{
+  "format": "paschen-studio-model/1",
+  "studio_version": "1.0.0",
+  "solver_version": "1.1.0",
+  "title": "Nitrogen ns-pulse DBD – 1-minute demo",
+  "description": "Coarse-grid version (Nx = 400, dt = 2.5 ps, adaptive sub-stepping) of the paper's nitrogen DBD benchmark (20 kV, 15 ns Gaussian pulse, 60 Torr, quartz barriers). Runs in about a minute; use the case defaults (Nx = 1000, dt = 1 ps) for converged results.",
+  "base_case": "config_case_nitrogen_pulsed_discharge",
+  "overrides": {
+    "numerics.Nt": 60000,
+    "numerics.Nx": 400,
+    "numerics.use_adaptive_substepping": true,
+    "output.save_every": 150,
+    "run.run_name": "nitrogen_dbd_demo"
+  },
+  "created": "2026-10-27T22:27:07",
+  "modified": "2026-10-27T22:27:07"
+}

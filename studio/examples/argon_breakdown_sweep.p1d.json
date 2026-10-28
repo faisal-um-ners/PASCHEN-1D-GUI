@@ -1,0 +1,27 @@
+{
+  "format": "paschen-studio-model/1",
+  "studio_version": "1.0.0",
+  "solver_version": "1.1.0",
+  "title": "Argon breakdown – applied-voltage sweep",
+  "description": "Sweeps the DC voltage across the classical breakdown estimate (~133 V at pd = 1 Torr·cm, γ = 0.05). Run it with: python -m paschen_studio sweep examples/argon_breakdown_sweep.p1d.json (each point simulates 4 µs).",
+  "base_case": "config_case_argon_dc_discharge",
+  "overrides": {
+    "numerics.Nt": 400000,
+    "output.save_every": 400,
+    "run.T_total": 4e-06,
+    "run.run_name": "argon_breakdown"
+  },
+  "created": "2026-10-27T22:27:07",
+  "modified": "2026-10-27T22:27:07",
+  "sweep": {
+    "parameter": "waveform.V_peak",
+    "values": [
+      120.0,
+      130.0,
+      140.0,
+      150.0,
+      160.0
+    ],
+    "prefix": "argon_breakdown"
+  }
+}

@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paschen-studio"
+dynamic = ["version"]
+description = "PASCHEN-1D Studio: graphical workbench and command line for the PASCHEN-1D drift-diffusion-Poisson plasma solver"
+readme = "README.md"
+# PASCHEN-1D itself supports Python 3.11-3.13 (Numba); 3.10 also works for the solver code.
+requires-python = ">=3.10,<3.14"
+authors = [{ name = "Md Arifuzzaman Faisal" }]
+license = { text = "Same terms as PASCHEN-1D (see ../LICENSE): non-commercial use, citation required" }
+keywords = ["plasma", "gas discharge", "breakdown", "Paschen", "drift-diffusion", "GUI", "PySide6"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Physics",
+  "Environment :: X11 Applications :: Qt",
+]
+# Everything the solver needs + the Qt GUI toolkit.  One command installs it all.
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "matplotlib>=3.7",
+  "tqdm>=4.65",
+  "numba>=0.59",
+  "PySide6>=6.5",
+]
+
+[project.optional-dependencies]
+notebooks = ["jupyterlab>=4.0", "ipykernel>=6.0"]
+dev = ["pytest>=7.4"]
+all = ["jupyterlab>=4.0", "ipykernel>=6.0", "pytest>=7.4"]
+
+[project.urls]
+Solver = "https://github.com/pbis-umich/PASCHEN-1D"
+Paper = "https://www.sciencedirect.com/science/article/pii/S0010465526003863"
+
+[project.scripts]
+paschen-studio = "paschen_studio.__main__:main"
+
+[project.gui-scripts]
+paschen-studio-gui = "paschen_studio.gui.app:gui_entry"
+
+[tool.setuptools.dynamic]
+version = { attr = "paschen_studio.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["paschen_studio*"]
+
+[tool.setuptools.package-data]
+"paschen_studio.gui" = ["assets/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

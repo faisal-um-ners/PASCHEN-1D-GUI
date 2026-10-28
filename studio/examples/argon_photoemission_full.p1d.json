@@ -1,0 +1,11 @@
+{
+  "format": "paschen-studio-model/1",
+  "studio_version": "1.0.0",
+  "solver_version": "1.1.0",
+  "title": "Argon photoemission-triggered discharge (full case)",
+  "description": "The published argon photoemission case: 231 V step, 30 ps 230 nm laser pulse at 1 µs, R0–Rm–C_ext circuit. Full 70 µs transient (about 45 min).",
+  "base_case": "config_case_argon_photoemission_discharge",
+  "overrides": {},
+  "created": "2026-10-27T22:27:07",
+  "modified": "2026-10-27T22:27:07"
+}
