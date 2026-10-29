@@ -19,9 +19,9 @@ import numpy as np
 from matplotlib.figure import Figure
 from PySide6.QtCore import QMimeData, QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QFrame,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QFrame,
                                QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
-                               QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget)
+                               QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 from . import theme as T
 from .plotting import FigureSpec, render
@@ -434,58 +434,21 @@ def _mark(w, bad: bool):
     w.style().polish(w)
 
 
-class ColorButton(QToolButton):
-    """Swatch that opens the system colour picker (on macOS the full Colors panel: wheel, sliders,
-    palettes, pencils and the eyedropper).
+class ColorSwatch(QFrame):
+    """Shows a line's colour (display only). Colours are changed with the 'Colours' scheme menu; there is no
+    free colour picker, because the system colour panel and its screen eyedropper are unreliable from Qt
+    (on macOS the panel opened behind the export window and the eyedropper could lock the mouse)."""
 
-    The picker is opened *non-blocking* (``show()``, not ``getColor()``/``exec()``), and the export dialog
-    itself is non-modal. Inside a blocking modal session macOS does not deliver the clicks the eyedropper
-    needs when a colour is picked outside the app's windows, so the app looked frozen; without a modal
-    session the panel behaves exactly as in any other Mac application."""
-
-    _active = None                     # one colour picker at a time (macOS has a single shared panel)
-
-    def __init__(self, color: str, on_change):
+    def __init__(self, color: str):
         super().__init__()
-        self._on_change = on_change
         self.setFixedSize(30, 24)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip("Line colour – click to choose")
         self.set_color(color)
-        self.clicked.connect(self._pick)
 
     def set_color(self, c: str):
         self.color = QColor(c).name()
-        self.setStyleSheet(f"QToolButton {{ background: {self.color}; border: 1px solid {T.c('border2')}; "
+        self.setToolTip(f"Line colour {self.color} – change it with 'Colours' (scheme) above")
+        self.setStyleSheet(f"QFrame {{ background: {self.color}; border: 1px solid {T.c('border2')}; "
                            f"border-radius: 5px; }}")
-
-    def _choose(self, col: QColor):
-        if col.isValid() and col.name() != self.color:
-            self.set_color(col.name())
-            self._on_change()
-
-    def _pick(self):
-        prev = ColorButton._active
-        if prev is not None:
-            try:
-                prev.reject()               # switch the picker to this line
-            except RuntimeError:            # already deleted
-                pass
-        dlg = QColorDialog(QColor(self.color), self.window())
-        dlg.setWindowTitle("Line colour")
-        dlg.setWindowModality(Qt.NonModal)
-        dlg.setAttribute(Qt.WA_DeleteOnClose)
-        dlg.colorSelected.connect(self._choose)
-
-        def _done(_=None, d=dlg):
-            if ColorButton._active is d:
-                ColorButton._active = None
-        dlg.finished.connect(_done)
-        dlg.destroyed.connect(_done)        # also when the export window closes with the picker open
-        ColorButton._active = dlg
-        dlg.show()
-        dlg.raise_()
-        dlg.activateWindow()
 
 
 def _section(text: str) -> QLabel:
@@ -875,7 +838,7 @@ class ExportDialog(QDialog):
             g.setContentsMargins(10, 8, 10, 8)
             g.setHorizontalSpacing(6)
             g.setVerticalSpacing(6)
-            col = ColorButton(c.color, self._curves_edited)
+            col = ColorSwatch(c.color)
             text = QLineEdit(c.label)
             text.setPlaceholderText("(not in legend)")
             style = QComboBox()

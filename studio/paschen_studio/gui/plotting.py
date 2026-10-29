@@ -538,8 +538,7 @@ class PlotCanvas(QWidget):
             return None
 
     def export_dialog(self):
-        """Open the export window. It is non-modal on purpose: the system colour picker (macOS Colors panel
-        and its eyedropper) needs events that a blocking modal session would hold back."""
+        """Open the export window (non-modal; a second click brings the open window to the front)."""
         if self._spec is None:
             return
         from .export_dialog import ExportDialog

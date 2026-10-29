@@ -139,7 +139,7 @@ axis scales, the range currently shown and the tick positions – and can be edi
 | Output | PNG, PDF, SVG, EPS or TIFF · single-column, double-column, slide, square or custom size · resolution · white publication, dark presentation or on-screen style |
 | Text | Font (sans-serif Arial/Helvetica, serif Times, LaTeX-look Computer Modern, STIX, DejaVu) · font size · default line width · ticks inside/outside · minor ticks · grid · *Typeset all text with LaTeX* (when a LaTeX installation with dvipng is found) |
 | Axes | Figure title (multi-panel plots) and panel title – shown only when you type one, otherwise no space is reserved · x label, y label (and right-hand y label, colour-bar label and colour map where present) · linear or logarithmic x and y · range (**Auto** fits the data) · tick positions as a comma-separated list |
-| Lines | Colour scheme for all curves (publication, colour-blind safe, Matplotlib, viridis, black & white with line styles) · per curve: legend text, colour picker, line style (solid, dashed, dotted, dash-dot, none), width, marker and marker size · markers per curve |
+| Lines | Colour scheme for all curves (publication, colour-blind safe, Matplotlib, viridis, black & white with line styles) · per curve: legend text, line style (solid, dashed, dotted, dash-dot, none), width, marker and marker size · markers per curve |
 | Legend | Show/hide per panel · position (best, any corner or edge, outside right, above the plot) · columns · text size · length of the line sample · gap to the text · row spacing · frame |
 
 Ticks shown in grey are chosen automatically and follow the range and scale; type your own list to fix them
