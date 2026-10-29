@@ -154,7 +154,10 @@ class JobManager(QObject):
         p = job.proc
         if p is None:
             return
-        data = bytes(p.readAllStandardOutput()).decode("utf-8", errors="replace")
+        try:
+            data = bytes(p.readAllStandardOutput()).decode("utf-8", errors="replace")
+        except RuntimeError:                 # process object already gone (application shutting down)
+            return
         buf = self._buf.get(job.id, "") + data.replace("\r\n", "\n").replace("\r", "\n")
         lines = buf.split("\n")
         self._buf[job.id] = lines.pop()

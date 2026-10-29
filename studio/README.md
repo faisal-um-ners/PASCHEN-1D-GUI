@@ -88,6 +88,7 @@ PASCHEN-1D/                     ← the solver (never modified by the studio)
     ├── docs/                   user guide, architecture notes, screenshots
     ├── install/                installers and launcher builders
     ├── tests/                  automated tests (python -m pytest studio/tests)
+    ├── benchmarks/             Studio vs. notebook run-time benchmark and its data
     ├── Launch PASCHEN-1D Studio.command / .bat, launch_studio.sh
     ├── runs/                   default workspace for run outputs (created on first run)
     └── pyproject.toml
@@ -100,6 +101,8 @@ studio leaves the solver folder untouched.
 
 * [User guide](docs/USER_GUIDE.md) – a tour of every page, the model file format and tips.
 * [How it works](docs/ARCHITECTURE.md) – how the studio talks to PASCHEN-1D without changing it.
+* [Performance](docs/PERFORMANCE.md) – Studio vs. Jupyter notebook run times, `numba_parallel` and
+  simultaneous runs (same speed as the notebook; up to 3× throughput with simultaneous runs).
 * In the app: **Help** (F1) shows a quick start, this guide, the PASCHEN-1D tutorial and README.
 
 ## Citation
