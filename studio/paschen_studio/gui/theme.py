@@ -150,6 +150,27 @@ QPushButton#fix {{ background: {t['accent_soft']}; color: {t['accent']}; border:
            border-radius: 6px; font-size: {fs - 1}pt; }}
 QPushButton#fix:hover {{ background: {t['accent']}; color: #ffffff; }}
 QToolButton#reset {{ background: transparent; border: none; border-radius: 6px; padding: 2px; }}
+QPushButton#run[split="true"] {{ border-top-right-radius: 0px; border-bottom-right-radius: 0px; padding-right: 14px; }}
+QPushButton#runMore {{ background: {t['success']}; border: 1px solid {t['success']};
+           border-left: 1px solid rgba(255,255,255,0.45); border-top-left-radius: 0px;
+           border-bottom-left-radius: 0px; padding: 6px 7px; }}
+QPushButton#runMore:hover {{ background: #15803d; border-color: #15803d; }}
+#segmented {{ background: {t['surface3']}; border-radius: 9px; border: none; }}
+QPushButton#segment {{ background: transparent; border: 1px solid transparent; border-radius: 7px;
+           color: {t['text2']}; font-weight: 600; padding: 4px 8px; }}
+QPushButton#segment:hover {{ color: {t['text']}; }}
+QPushButton#segment:checked {{ background: {t['surface']}; color: {t['text']}; border: 1px solid {t['border']}; }}
+QPushButton#link {{ background: transparent; border: none; color: {t['accent']}; padding: 2px 4px;
+           font-weight: 600; text-align: left; }}
+QPushButton#link:hover {{ color: {t['accent_hover']}; text-decoration: underline; }}
+#childLabel {{ color: {t['text2']}; background: transparent; }}
+#childLabel:disabled {{ color: {t['text3']}; }}
+#rowCard {{ background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 10px; }}
+#rowCard:hover {{ border: 1px solid {t['accent']}; background: {t['surface2']}; }}
+#stepNum {{ background: {t['accent_soft']}; color: {t['accent']}; border-radius: 11px; font-weight: 700; }}
+#checkStrip {{ background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 12px; }}
+#checkStrip[state="error"] {{ border: 1px solid {t['danger']}; }}
+#checkStrip[state="warning"] {{ border: 1px solid {t['warning']}; }}
 QToolButton#reset:hover {{ background: {t['surface3']}; }}
 
 /* ---------- inputs ---------- */

@@ -5,9 +5,9 @@ import time
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QTextCursor
-from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-                               QPlainTextEdit, QProgressBar, QSplitter, QStackedWidget, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget,
+                               QListWidgetItem, QPlainTextEdit, QProgressBar, QSizePolicy, QSplitter, QStackedWidget,
+                               QVBoxLayout, QWidget)
 
 from ..runs import RunData, health, health_message
 from ..units import format_quantity, human_duration
@@ -16,7 +16,7 @@ from . import theme as T
 from .builder import pane
 from .plotting import PlotCanvas
 from .runplots import history_spec, profiles_spec
-from .widgets import ElidedLabel, StatTile, badge, icon_button, label, push
+from .widgets import ElidedLabel, RunButton, StatTile, badge, icon_button, label, push
 
 LIVE_PROFILE_CHOICES = [("Densities nₑ, nᵢ", ["ne", "ni"]), ("Potential φ", ["phi"]), ("Electric field E", ["E"]),
                         ("Fluxes Γₑ, Γᵢ", ["Gamma_e", "Gamma_i"]), ("Net source S", ["S"]),
@@ -75,6 +75,7 @@ class RunPage(QWidget):
     requestRun = Signal()
     requestTest = Signal()
     requestSweep = Signal()
+    requestModel = Signal()            # "go to the Model page" (to fix errors)
 
     def __init__(self, manager, settings, parent=None):
         super().__init__(parent)
@@ -96,28 +97,21 @@ class RunPage(QWidget):
         bl = QVBoxLayout(bw)
         bl.setContentsMargins(10, 10, 10, 6)
         bl.setSpacing(6)
-        self.b_run = push("Run current model", "run", icon_name="play")
-        self.b_run.setToolTip("Run the model that is open in the Model Builder (F5)")
+        # one start button; test run and sweep are in its menu
+        self.b_run = RunButton("Run current model", tip="Run the model that is open on the Model page (F5)")
+        self.b_run.main.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.b_run.clicked.connect(self.requestRun.emit)
-        self.b_test = push("Test run", icon_name="flask")
-        self.b_test.setToolTip("Run 2 % of the time steps (same dt) to verify the setup in seconds")
-        self.b_test.clicked.connect(self.requestTest.emit)
-        self.b_sweep = push("Sweep…", icon_name="sweep")
-        self.b_sweep.setToolTip("Run a parameter sweep: one setting over a range of values")
-        self.b_sweep.clicked.connect(self.requestSweep.emit)
+        self.b_run.add_action("Test run – 2 % of the time steps", self.requestTest.emit, "flask", "Shift+F5")
+        self.b_run.add_action("Parameter sweep…", self.requestSweep.emit, "sweep", "Ctrl+Shift+R")
         bl.addWidget(self.b_run)
-        h = QHBoxLayout()
-        h.addWidget(self.b_test)
-        h.addWidget(self.b_sweep)
-        bl.addLayout(h)
         lv.addWidget(bw)
         self.list = QListWidget()
         self.list.setSpacing(2)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list.currentRowChanged.connect(self._select_row)
         lv.addWidget(self.list, 1)
-        self.empty_q = label("No runs yet. Build a model and press Run – or open an example from the Home page.",
-                             "muted", wrap=True)
+        self.empty_q = label("Runs you start appear here, newest first. Several can run at the same time "
+                             "(Preferences → Simultaneous runs).", "hint", wrap=True)
         ew = QWidget()
         el = QVBoxLayout(ew)
         el.setContentsMargins(14, 0, 14, 10)
@@ -125,6 +119,7 @@ class RunPage(QWidget):
         lv.addWidget(ew)
         cb = push("Clear finished", "ghost", icon_name="trash")
         cb.clicked.connect(self._clear)
+        self.b_clear = cb
         cw = QWidget()
         cl = QHBoxLayout(cw)
         cl.setContentsMargins(10, 0, 10, 10)
@@ -134,6 +129,9 @@ class RunPage(QWidget):
         left.setMinimumWidth(300)
         sp.addWidget(left)
 
+        # ---- empty state: what happens here and the one next step ----
+        self.detail = QStackedWidget()
+        self.detail.addWidget(self._build_empty())
         # ---- detail ----
         right = QFrame()
         right.setObjectName("pane")
@@ -227,10 +225,12 @@ class RunPage(QWidget):
         rv.addLayout(tabs)
         self.stack.addWidget(self.console)
         rv.addWidget(self.stack, 1)
-        sp.addWidget(right)
+        self.detail.addWidget(right)
+        sp.addWidget(self.detail)
         sp.setSizes([300, 1100])
         sp.setStretchFactor(1, 1)
         self._tab(0)
+        self._update_clear()
 
         manager.added.connect(self._added)
         manager.changed.connect(self._changed)
@@ -241,6 +241,68 @@ class RunPage(QWidget):
         self._show_job(None)
 
     # -- widgets --------------------------------------------------------------
+    def _build_empty(self):
+        w = QFrame()
+        w.setObjectName("pane")
+        outer = QVBoxLayout(w)
+        outer.addStretch(2)
+        box = QWidget()
+        box.setMaximumWidth(560)
+        v = QVBoxLayout(box)
+        v.setSpacing(10)
+        ic = QLabel()
+        ic.setPixmap(icons.pixmap("play", T.c("success"), 40))
+        ic.setAlignment(Qt.AlignCenter)
+        v.addWidget(ic)
+        self.e_title = label("Ready to run", "h2")
+        self.e_title.setAlignment(Qt.AlignCenter)
+        self.e_title.setWordWrap(True)
+        v.addWidget(self.e_title)
+        self.e_sub = label("", "muted", wrap=True)
+        self.e_sub.setAlignment(Qt.AlignCenter)
+        v.addWidget(self.e_sub)
+        row = QHBoxLayout()
+        row.addStretch()
+        self.e_run = push("Run", "run", icon_name="play", tip="Run the model (F5)")
+        self.e_run.clicked.connect(self.requestRun.emit)
+        row.addWidget(self.e_run)
+        self.e_test = push("Test run first", icon_name="flask",
+                           tip="Run 2 % of the time steps with the same dt – checks the setup in seconds (Shift+F5)")
+        self.e_test.clicked.connect(self.requestTest.emit)
+        row.addWidget(self.e_test)
+        self.e_model = push("Go to the Model page", "primary", icon_name="model")
+        self.e_model.clicked.connect(self.requestModel.emit)
+        row.addWidget(self.e_model)
+        row.addStretch()
+        v.addLayout(row)
+        how = label("While a run is going you will see its progress, live profiles (densities, fields) and "
+                    "time traces (voltages, currents) here, plus the solver log. Pause, stop early with results "
+                    "kept, or abort at any time.", "hint", wrap=True)
+        how.setAlignment(Qt.AlignCenter)
+        v.addSpacing(6)
+        v.addWidget(how)
+        h = QHBoxLayout()
+        h.addStretch()
+        h.addWidget(box, 10)
+        h.addStretch()
+        outer.addLayout(h)
+        outer.addStretch(3)
+        self.set_model_info("the current model", "", 0)
+        return w
+
+    def set_model_info(self, title: str, summary: str, n_errors: int):
+        """What the empty state offers: run the open model, or go fix it first."""
+        if n_errors:
+            self.e_title.setText(f"{title} is not ready to run")
+            self.e_sub.setText(f"The model check found {n_errors} error{'s' * (n_errors != 1)}. Fix "
+                               f"{'them' if n_errors != 1 else 'it'} on the Model page – most have a one-click fix.")
+        else:
+            self.e_title.setText(f"Ready to run: {title}")
+            self.e_sub.setText(summary)
+        self.e_run.setVisible(not n_errors)
+        self.e_test.setVisible(not n_errors)
+        self.e_model.setVisible(bool(n_errors))
+
     def _live_plot(self, kind, default_idx):
         w = QFrame()
         w.setObjectName("cardFlat")
@@ -279,8 +341,15 @@ class RunPage(QWidget):
         self._items[job.id] = (it, w)
         self.list.setCurrentRow(0)
         self.empty_q.setVisible(False)
+        self._update_clear()
+
+    def _update_clear(self):
+        self.b_clear.setVisible(any(j.done for j in self.m.jobs))
+        # with no runs yet the empty state on the right offers Run; avoid a second identical button
+        self.b_run.setVisible(bool(self.m.jobs))
 
     def _changed(self, job):
+        self._update_clear()
         if job.id in self._items:
             self._items[job.id][1].update_view()
         if job is self.current:
@@ -312,6 +381,7 @@ class RunPage(QWidget):
         if self.current is not None and self.current.done:
             self._show_job(None)
         self.empty_q.setVisible(self.list.count() == 0)
+        self._update_clear()
 
     # -- detail -----------------------------------------------------------------
     def _show_job(self, job, partial=False):
@@ -327,6 +397,7 @@ class RunPage(QWidget):
             for _, combo, canvas in (self.p_prof1, self.p_prof2, self.p_hist1, self.p_hist2):
                 canvas.clear("Waiting for data…" if job else "")
         has = job is not None
+        self.detail.setCurrentIndex(1 if has else 0)
         for b in (self.b_pause, self.b_stop, self.b_abort, self.b_results, self.b_folder):
             b.setEnabled(has)
         if not has:
@@ -334,7 +405,7 @@ class RunPage(QWidget):
             self.d_badge.setVisible(False)
             self.d_path.setText("")
             self.pct.setText("–")
-            self.phase.setText("Start a run from the Model Builder (F5) or with the buttons on the left.")
+            self.phase.setText("Start a run from the Model page (F5) or with the buttons on the left.")
             self.bar.setValue(0)
             return
         self.d_title.setText(job.label)
@@ -346,10 +417,12 @@ class RunPage(QWidget):
         self.d_path.setText(str(job.run_dir))
         self.b_pause.setText("Resume" if job.status == "paused" else "Pause")
         self.b_pause.setIcon(icons.icon("play" if job.status == "paused" else "pause", T.c("text2"), 16))
-        self.b_pause.setEnabled(job.status in ("running", "paused"))
-        self.b_stop.setEnabled(job.active or job.status == "queued")
-        self.b_abort.setEnabled(job.active or job.status == "queued")
-        self.b_results.setEnabled(job.done and job.status in ("finished", "stopped"))
+        # show only the controls that can act on this run (no rows of greyed-out buttons)
+        live = job.active or job.status == "queued"
+        self.b_pause.setVisible(job.status in ("running", "paused"))
+        self.b_stop.setVisible(live)
+        self.b_abort.setVisible(live)
+        self.b_results.setVisible(job.done and job.status in ("finished", "stopped"))
         self.pct.setText(f"{100 * job.fraction:.1f} %")
         self.bar.setValue(int(1000 * job.fraction))
         ph = {"queued": "Waiting in the queue", "starting": "Starting…", "finished": "Finished",

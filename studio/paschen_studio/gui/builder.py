@@ -7,8 +7,8 @@ from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter,
-                               QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-                               QWidget)
+                               QStackedWidget, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
+                               QVBoxLayout, QWidget)
 
 from .. import advisor as A
 from .. import schema as SC
@@ -18,7 +18,8 @@ from . import icons
 from . import theme as T
 from .form import SettingsForm
 from .previews import GraphicsPanel
-from .widgets import Collapsible, GuideText, StatTile, icon_button, label, push
+from .setup_panel import SetupPanel
+from .widgets import Collapsible, GuideText, SegmentedControl, StatTile, icon_button, label, push
 
 OVERVIEW = "__overview__"
 
@@ -43,7 +44,9 @@ def pane(title: str = "", obj: str = "pane"):
 
 # ---------------------------------------------------------------------------
 class IssuesPanel(QFrame):
-    """Model-check results with 'go to' and one-click fixes."""
+    """Model check as a slim status strip: one line says whether the model can run and what it will cost.
+    The individual findings (with 'go to' and one-click fixes) fold out on demand, and open by themselves
+    when a new error appears."""
 
     goto = Signal(str)
     fix = Signal(str)
@@ -51,34 +54,69 @@ class IssuesPanel(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName("pane")
+        self.setObjectName("checkStrip")
+        self._n_err = 0
+        self._auto_opened = False
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         head = QWidget()
-        head.setObjectName("paneHeader")
         hl = QHBoxLayout(head)
-        hl.setContentsMargins(14, 8, 10, 8)
-        ic = QLabel()
-        ic.setPixmap(icons.pixmap("check", T.c("text2"), 16))
-        hl.addWidget(ic)
-        hl.addWidget(label("Model check", "paneTitle"))
+        hl.setContentsMargins(14, 7, 10, 7)
+        hl.setSpacing(8)
+        self.icon = QLabel()
+        hl.addWidget(self.icon)
+        self.state = label("", "paneTitle")
+        hl.addWidget(self.state)
         self.summary = label("", "muted")
-        hl.addWidget(self.summary)
-        hl.addStretch()
-        b = push("Re-check", icon_name="refresh")
+        self.summary.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        hl.addWidget(self.summary, 1)
+        self.b_details = push("Details", "ghost", icon_name="chevron_up")
+        self.b_details.setCheckable(True)
+        self.b_details.setToolTip("Show every finding of the model check, with links and one-click fixes")
+        self.b_details.toggled.connect(self._toggle)
+        self.b_details.clicked.connect(lambda: setattr(self, "_auto_opened", False))    # user's choice wins
+        hl.addWidget(self.b_details)
+        b = icon_button("refresh", "Re-check the model now (Ctrl+Shift+K)", size=16)
         b.clicked.connect(self.recheck.emit)
         hl.addWidget(b)
         v.addWidget(head)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
+        self.scroll.setMaximumHeight(190)
         self.body = QWidget()
         self.lay = QVBoxLayout(self.body)
-        self.lay.setContentsMargins(10, 6, 10, 6)
+        self.lay.setContentsMargins(10, 0, 10, 8)
         self.lay.setSpacing(2)
         self.lay.addStretch()
         self.scroll.setWidget(self.body)
+        self.scroll.setVisible(False)
         v.addWidget(self.scroll)
+
+    def _toggle(self, on):
+        self.scroll.setVisible(on)
+        self.b_details.setIcon(icons.icon("chevron_down" if on else "chevron_up", T.c("text2"), 16))
+
+    def mouseReleaseEvent(self, e):          # clicking the strip folds the details in/out
+        if e.button() == Qt.LeftButton and e.position().y() < 44:
+            self._auto_opened = False
+            self.b_details.toggle()
+        super().mouseReleaseEvent(e)
+
+    def set_estimate(self, text: str):
+        self._estimate = text
+        self._update_summary()
+
+    def _update_summary(self):
+        est = getattr(self, "_estimate", "")
+        ne, nw = self._n_err, getattr(self, "_n_warn", 0)
+        if ne:
+            txt = "Fix the errors below before running."
+        elif nw:
+            txt = (f"{nw} warning{'s' * (nw != 1)} worth a look" + (f"  ·  {est}" if est else ""))
+        else:
+            txt = est
+        self.summary.setText(txt)
 
     def set_issues(self, issues):
         while self.lay.count() > 1:
@@ -92,9 +130,23 @@ class IssuesPanel(QFrame):
         icn = {"error": "error", "warning": "warning", "info": "info", "ok": "ok"}
         ne = sum(1 for i in issues if i.level == "error")
         nw = sum(1 for i in issues if i.level == "warning")
-        self.summary.setText(("✓ ready" if ne == 0 else f"{ne} error{'s' * (ne != 1)}") +
-                             (f" · {nw} warning{'s' * (nw != 1)}" if nw else ""))
-        for k, iss in enumerate(issues):
+        state = "error" if ne else ("warning" if nw else "ok")
+        self.icon.setPixmap(icons.pixmap(icn[state], cols[state], 18))
+        self.state.setText(f"{ne} error{'s' * (ne != 1)}" if ne else "Ready to run")
+        self.state.setStyleSheet(f"color: {cols['error']};" if ne else "")
+        self.setProperty("state", state)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.b_details.setText(f"Details ({len(issues)})" if issues else "Details")
+        if ne > self._n_err and not self.b_details.isChecked():
+            self._auto_opened = True
+            self.b_details.setChecked(True)               # a new error: show it without being asked
+        elif ne == 0 and self._auto_opened and self.b_details.isChecked():
+            self._auto_opened = False
+            self.b_details.setChecked(False)              # ...and fold it away again once it is fixed
+        self._n_err, self._n_warn = ne, nw
+        self._update_summary()
+        for iss in issues:
             row = QWidget()
             hl = QHBoxLayout(row)
             hl.setContentsMargins(2, 2, 2, 2)
@@ -166,10 +218,10 @@ class OverviewPanel(QWidget):
         grid = QGridLayout()
         grid.setSpacing(8)
         self.tiles = {}
+        # the physics at a glance; run time and output size are in the model-check strip below
         specs = [("gas", "Gas", "gas"), ("gap", "Gap", "gap"), ("drive", "Drive", "wave"),
                  ("circuit", "Circuit", "circuit"), ("time", "Simulated time", "clock"),
-                 ("grid", "Grid & time step", "grid"), ("runtime", "Estimated run time", "cpu"),
-                 ("size", "Output size", "output"), ("breakdown", "Breakdown estimate", "bolt")]
+                 ("breakdown", "Breakdown voltage", "bolt")]
         for k, (key, title, ic) in enumerate(specs):
             t = StatTile(title, "–", "", ic)
             self.tiles[key] = t
@@ -191,10 +243,13 @@ class OverviewPanel(QWidget):
         self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(True)
         self.table.cellDoubleClicked.connect(lambda r, c: self.goto.emit(self.table.item(r, 0).data(Qt.UserRole)))
-        v.addWidget(self.table, 1)
-        self.empty = label("No settings changed yet – this model equals the base case. Pick a block in the tree "
-                           "to edit it.", "muted", wrap=True)
+        self.empty = label("No settings changed yet – this model equals the base case. Pick a block on the left "
+                           "to edit it; every change is listed here.", "muted", wrap=True)
         v.addWidget(self.empty)
+        v.addWidget(self.table, 1)
+        self.filler = QWidget()                 # keeps the empty-state text under its heading
+        self.filler.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        v.addWidget(self.filler)
 
     def set_model(self, model):
         self.model = model
@@ -224,11 +279,8 @@ class OverviewPanel(QWidget):
                                 f"{SC.choice_label(wt)} · E/N ≈ {e['E_over_N_Td']:.3g} Td")
         self.tiles["circuit"].set(SC.choice_label(v["circuit.circuit_type"]).split(" (")[0],
                                   SC.choice_label(v["circuit.circuit_time_scheme"]))
-        self.tiles["time"].set(format_quantity(v["run.T_total"], "s"), f"{e['Nt'] - 1:,} steps")
-        self.tiles["grid"].set(f"{e['Nx']} pts", f"dx = {format_quantity(e['dx'], 'm')} · "
-                                                f"dt = {format_quantity(e['dt'], 's')}")
-        self.tiles["runtime"].set(human_duration(e["runtime_s"]), f"≈ {e['steps_per_s']:,.0f} steps/s (rough)")
-        self.tiles["size"].set(human_bytes(e["bytes_total"]), f"{e['nsave']:,} snapshots")
+        self.tiles["time"].set(format_quantity(v["run.T_total"], "s"),
+                               f"{e['Nt'] - 1:,} steps of {format_quantity(e['dt'], 's')} · {e['Nx']} grid points")
         try:
             pc = A.paschen_curve(m, npts=8)
             if pc and math.isfinite(pc["Vb0"]):
@@ -263,6 +315,7 @@ class OverviewPanel(QWidget):
         self.table.setColumnWidth(3, 36)
         self.table.setVisible(bool(rows))
         self.empty.setVisible(not rows)
+        self.filler.setVisible(not rows)
 
 
 # ---------------------------------------------------------------------------
@@ -281,28 +334,57 @@ class ModelPage(QWidget):
         self.group = OVERVIEW
         self.form: SettingsForm | None = None
         self.issues = []
+        # Two levels (progressive disclosure): Setup = the few settings most studies change, as one short
+        # form in the user's order; All settings = every solver block (tree), for experts.
+        self.show_all = str(settings.value("settings_view", "setup")) == "all"
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(0)
-        self.vsplit = QSplitter(Qt.Vertical)
-        self.vsplit.setChildrenCollapsible(False)
-        root.addWidget(self.vsplit)
-        self.hsplit = QSplitter(Qt.Horizontal)
-        self.hsplit.setChildrenCollapsible(False)
-        self.vsplit.addWidget(self.hsplit)
-
-        # ---- tree ----
-        left, lv, lh, _ = pane("Model builder")
+        root.setContentsMargins(12, 10, 12, 12)
+        root.setSpacing(8)
+        bar = QHBoxLayout()
+        bar.setSpacing(10)
+        self.view = SegmentedControl(
+            ["Setup", "All settings"],
+            ["The settings most studies change – gas, gap, voltage, circuit, electrodes, run length – as one "
+             "short form, with the live preview.",
+             "Every solver setting, block by block: physics closures, boundary conditions, numerics, output, "
+             "expert options (unused ones greyed, with the reason)."],
+            current=1 if self.show_all else 0)
+        self.view.setFixedWidth(240)
+        self.view.changed.connect(lambda i: self.set_show_all(i == 1))
+        bar.addWidget(self.view)
+        self.view_hint = label("", "hint")
+        bar.addWidget(self.view_hint, 1)
         self.find_btn = QPushButton("  Find a setting…")
         self.find_btn.setIcon(icons.icon("search", T.c("text3"), 15))
         self.find_btn.setStyleSheet(f"QPushButton {{ text-align: left; color: {T.c('text3')}; font-weight: 500; "
-                                    f"background: {T.c('surface2')}; }}")
-        self.find_btn.setToolTip("Search every setting (Ctrl+K)")
-        fb = QWidget()
-        fbl = QVBoxLayout(fb)
-        fbl.setContentsMargins(10, 8, 10, 4)
-        fbl.addWidget(self.find_btn)
-        lv.addWidget(fb)
+                                    f"background: {T.c('surface')}; padding: 5px 10px; }}")
+        self.find_btn.setMinimumWidth(220)
+        self.find_btn.setToolTip("Search every setting by name or meaning (Ctrl+K)")
+        bar.addWidget(self.find_btn)
+        root.addLayout(bar)
+        self.modes = QStackedWidget()
+        root.addWidget(self.modes, 1)
+        # Setup mode: form | preview
+        self.ssplit = QSplitter(Qt.Horizontal)
+        self.ssplit.setChildrenCollapsible(False)
+        self.setup = SetupPanel()
+        self.setup.changed.connect(self._changed)
+        self.setup.reset.connect(self._reset_one)
+        self.setup.action.connect(self._form_action)
+        self.setup.more.connect(self.open_block)
+        self.setup.preview.connect(lambda g: self.graphics.show_for_group(g))
+        self.setup.titleChanged.connect(self._title)
+        self.setup.changeCase.connect(self.requestChangeCase.emit)
+        self.setup.setMinimumWidth(460)
+        self.ssplit.addWidget(self.setup)
+        self.modes.addWidget(self.ssplit)
+        # All settings mode: tree | block | preview
+        self.hsplit = QSplitter(Qt.Horizontal)
+        self.hsplit.setChildrenCollapsible(False)
+        self.modes.addWidget(self.hsplit)
+
+        # ---- tree ----
+        left, lv, lh, _ = pane("Blocks")
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setIndentation(10)
@@ -310,11 +392,17 @@ class ModelPage(QWidget):
         self.tree.setRootIsDecorated(False)
         self.tree.itemSelectionChanged.connect(self._on_tree)
         lv.addWidget(self.tree, 1)
-        self.changes_lab = label("", "hint")
+        self.changes_lab = label("", "hint", wrap=True)
         cl = QWidget()
-        cll = QHBoxLayout(cl)
+        cll = QVBoxLayout(cl)
         cll.setContentsMargins(14, 6, 10, 10)
+        cll.setSpacing(2)
         cll.addWidget(self.changes_lab)
+        self.hidden_link = push("", "link")
+        self.hidden_link.setToolTip("Show every block, including those the current choices do not use")
+        self.hidden_link.clicked.connect(lambda: self.set_show_all(True))
+        self.hidden_link.hide()
+        cll.addWidget(self.hidden_link)
         lv.addWidget(cl)
         left.setMinimumWidth(220)
         self.hsplit.addWidget(left)
@@ -323,15 +411,10 @@ class ModelPage(QWidget):
         mid, mv, mh, self.mid_title = pane("Settings")
         self.mid_icon = QLabel()
         mh.insertWidget(0, self.mid_icon)
-        self.b_adv = icon_button("settings", "Show advanced settings", size=16, checkable=True, text="Advanced")
-        self.b_inact = icon_button("layers", "Show settings that are not used by the current choices",
-                                   size=16, checkable=True, text="Inactive")
-        self.b_reset = icon_button("reset", "Reset this block to the case defaults", size=16, text="Reset")
-        for b in (self.b_adv, self.b_inact, self.b_reset):
-            mh.addWidget(b)
-        self.b_adv.setChecked(str(settings.value("show_advanced", "false")) == "true")
-        self.b_adv.toggled.connect(self._flags)
-        self.b_inact.toggled.connect(self._flags)
+        # only shown when this block has changed settings (nothing to reset otherwise)
+        self.b_reset = icon_button("reset", "Reset every setting of this block to the case defaults", size=16,
+                                   text="Reset block")
+        mh.addWidget(self.b_reset)
         self.b_reset.clicked.connect(self._reset_group)
         self.intro = label("", "muted", wrap=True)
         iw = QWidget()
@@ -359,19 +442,19 @@ class ModelPage(QWidget):
         gl.addWidget(self.graphics)
         rv.addWidget(gw, 1)
         right.setMinimumWidth(320)
+        self.preview_pane = right
         self.hsplit.addWidget(right)
         self.hsplit.setSizes([250, 560, 560])
         self.hsplit.setStretchFactor(1, 1)
         self.hsplit.setStretchFactor(2, 1)
+        self._place_preview()
 
-        # ---- issues ----
+        # ---- model check: a slim strip, details on demand ----
         self.issues_panel = IssuesPanel()
         self.issues_panel.goto.connect(self.focus_setting)
         self.issues_panel.fix.connect(self.requestFix.emit)
         self.issues_panel.recheck.connect(lambda: self.run_check(deep=True))
-        self.vsplit.addWidget(self.issues_panel)
-        self.vsplit.setSizes([700, 150])
-        self.vsplit.setStretchFactor(0, 1)
+        root.addWidget(self.issues_panel)
 
         self.overview = OverviewPanel()
         self.overview.titleChanged.connect(self._title)
@@ -393,7 +476,7 @@ class ModelPage(QWidget):
 
     def _fit_mid_header(self):
         """Show the block title in full; drop the button captions (icons + tooltips stay) when space is short."""
-        btns = [b for b in (self.b_adv, self.b_inact, self.b_reset) if b.isVisible()]
+        btns = [b for b in (self.b_reset,) if b.isVisible()]
         if not btns:
             return
         fm = self.mid_title.fontMetrics()
@@ -410,6 +493,7 @@ class ModelPage(QWidget):
         self.model = model
         self.workspace = workspace
         self.overview.set_model(model)
+        self.setup.set_model(model)
         self.graphics.set_model(model)
         self._build_tree()
         self.select_group(self.group if self.group == OVERVIEW or self.group in model.schema.groups else OVERVIEW)
@@ -474,10 +558,14 @@ class ModelPage(QWidget):
             if iss.level == "error" and iss.path:
                 g = iss.path.rpartition(".")[0]
                 errs[g] = errs.get(g, 0) + 1
+        hidden = 0
         for g, it in self._items.items():
             if g == OVERVIEW:
                 continue
             active, why = SC.group_active(g, v)
+            keep = True                               # All settings lists every block (unused ones greyed)
+            it.setHidden(not keep)
+            hidden += not keep
             title = SC.GROUP_TITLES.get(g, SC.humanize(g))
             n = counts.get(g, 0)
             it.setText(0, title + (f"   •{n}" if n else ""))
@@ -486,9 +574,15 @@ class ModelPage(QWidget):
             it.setForeground(0, QColor(T.c("text") if active else T.c("text3")))
             it.setToolTip(0, (why if not active else SC.GROUP_INTRO.get(g, "")) +
                           (f"\n{n} changed setting(s)" if n else ""))
+        for i in range(self.tree.topLevelItemCount()):          # section titles follow their blocks
+            head = self.tree.topLevelItem(i)
+            if head.childCount():
+                head.setHidden(all(head.child(k).isHidden() for k in range(head.childCount())))
         n = len(self.model.overrides)
         self.changes_lab.setText(f"{n} setting{'s' * (n != 1)} changed from the base case" if n else
                                  "Using the base-case defaults")
+        self.hidden_link.setText(f"+ {hidden} more block{'s' * (hidden != 1)} in All settings")
+        self.hidden_link.setVisible(hidden > 0)
 
     def _on_tree(self):
         it = self.tree.currentItem()
@@ -512,15 +606,13 @@ class ModelPage(QWidget):
             self.mid_icon.setPixmap(icons.pixmap("home", T.c("accent"), 18))
             self.intro.setText("Everything about this model at a glance. Double-click a changed setting to edit it.")
             self.inactive_banner.setVisible(False)
-            for b in (self.b_adv, self.b_inact, self.b_reset):
-                b.setVisible(False)
+            self.b_reset.setVisible(False)
             self.overview.refresh()
             self.scroll.setWidget(self.overview)
             self.overview.show()
             self.form = None
             return
-        for b in (self.b_adv, self.b_inact, self.b_reset):
-            b.setVisible(True)
+        self._update_reset_button()
         title = SC.GROUP_TITLES.get(g, SC.humanize(g))
         self.mid_title.setText(title)
         QTimer.singleShot(0, self._fit_mid_header)
@@ -532,8 +624,9 @@ class ModelPage(QWidget):
         body = QWidget()
         bl = QVBoxLayout(body)
         bl.setContentsMargins(16, 8, 16, 16)
-        self.form = SettingsForm(self.model, g, show_inactive=self.b_inact.isChecked() or not active,
-                                 show_advanced=self.b_adv.isChecked())
+        # All settings: every option incl. expert ones; settings unused by the current choices fold behind one
+        # link at the end of the block (a wholly unused block shows everything, dimmed, with the reason)
+        self.form = SettingsForm(self.model, g, show_inactive=not active, show_advanced=True)
         self.form.changed.connect(self._changed)
         self.form.reset_requested.connect(self._reset_one)
         self.form.action.connect(self._form_action)
@@ -548,11 +641,50 @@ class ModelPage(QWidget):
         bl.addStretch(1)                       # extra height goes below the content, not inside the form
         self.scroll.setWidget(body)
         self.graphics.show_for_group(g)
+        if self._items.get(g) is not None and self._items[g].isHidden():
+            self._decorate_tree()                 # a block reached by search/links is always listed
 
-    def _flags(self):
-        self.settings.setValue("show_advanced", "true" if self.b_adv.isChecked() else "false")
-        if self.form is not None:
-            self.form.set_flags(self.b_inact.isChecked(), self.b_adv.isChecked())
+    def set_show_all(self, on: bool):
+        """Setup (False) or All settings (True)."""
+        on = bool(on)
+        self.view.setIndex(1 if on else 0)
+        changed = on != self.show_all
+        self.show_all = on
+        self.settings.setValue("settings_view", "all" if on else "setup")
+        self._place_preview()
+        if self.model is not None and changed:
+            if on:
+                self._decorate_tree()
+                self.select_group(self.group)
+            else:
+                self.setup.refresh()
+
+    def _place_preview(self):
+        """One preview panel, shown beside whichever mode is active."""
+        target = self.hsplit if self.show_all else self.ssplit
+        if self.preview_pane.parent() is not target:
+            target.addWidget(self.preview_pane)
+            if target is self.ssplit:
+                self.ssplit.setSizes([620, 560])
+                self.ssplit.setStretchFactor(0, 1)
+                self.ssplit.setStretchFactor(1, 1)
+            else:
+                self.hsplit.setSizes([250, 560, 560])
+        self.modes.setCurrentIndex(1 if self.show_all else 0)
+        self.view_hint.setText("Every solver setting, block by block." if self.show_all else
+                               "The settings most studies change. Everything else is under All settings.")
+
+    def open_block(self, g: str):
+        """'More … settings' from a Setup card: the complete block in All settings."""
+        self.set_show_all(True)
+        self.select_group(g)
+
+    def _update_reset_button(self):
+        g = self.group
+        n = sum(1 for p in self.model.overrides if p.rpartition(".")[0] == g) if (self.model and g != OVERVIEW) else 0
+        self.b_reset.setVisible(n > 0)
+        if n:
+            QTimer.singleShot(0, self._fit_mid_header)
 
     # -- editing -------------------------------------------------------------------
     def _changed(self, path, value):
@@ -592,8 +724,10 @@ class ModelPage(QWidget):
             active, why = SC.group_active(self.group, self.model.values()) if self.group != OVERVIEW else (True, "")
             self.inactive_banner.setVisible(not active)
             self.inactive_banner.setText(f"⚠ This block is not used right now: {why}")
+            self._update_reset_button()
         else:
             self.overview.refresh()
+        self.setup.refresh()
         self.graphics.invalidate(paths)
         self._decorate_tree()
         self.modelEdited.emit(list(paths))
@@ -606,6 +740,7 @@ class ModelPage(QWidget):
             self.overview.refresh()
         else:
             self.form.refresh()
+        self.setup.refresh()
         self.graphics.invalidate()
         self._decorate_tree()
         self.run_check(deep=False)
@@ -616,6 +751,13 @@ class ModelPage(QWidget):
         self.issues = A.check_model(self.model, workspace=self.workspace, deep=deep,
                                     measured_rate_coeff=_float(self.settings.value("rate_coeff", None)))
         self.issues_panel.set_issues(self.issues)
+        try:
+            e = A.estimate(self.model)
+            self.issues_panel.set_estimate(f"estimated run time ≈ {human_duration(e['runtime_s'])}  ·  "
+                                           f"output ≈ {human_bytes(e['bytes_total'])}  ·  "
+                                           f"{e['Nt'] - 1:,} time steps × {e['Nx']} grid points")
+        except Exception:
+            self.issues_panel.set_estimate("")
         self._decorate_tree()
         return self.issues
 
@@ -625,10 +767,12 @@ class ModelPage(QWidget):
         g = path.rpartition(".")[0]
         if g not in self._items:
             return
-        if not SC.field_active(path, self.model.values())[0] and not self.b_inact.isChecked():
-            self.b_inact.setChecked(True)
-        if SC.meta_for(path, self.model.schema.fields[path].comment).advanced and not self.b_adv.isChecked():
-            self.b_adv.setChecked(True)
+        if not self.show_all:                    # stay in Setup if the setting is on the Setup form
+            w = self.setup.focus_field(path)
+            if w is not None:
+                self._flash(w)
+                return
+            self.set_show_all(True)              # otherwise reveal it in All settings
         self.select_group(g)
         if self.form is not None:
             w = self.form.focus_field(path)
@@ -644,6 +788,7 @@ class ModelPage(QWidget):
         self.graphics.restyle()
         if self.model is not None:
             self._build_tree()
+            self.setup.set_model(self.model)
             self.select_group(self.group)
             self.issues_panel.set_issues(self.issues)
 

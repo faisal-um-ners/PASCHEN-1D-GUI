@@ -89,6 +89,12 @@ class FieldRow:
         self.lab.setToolTip(tip)
         self.lab.setWordWrap(True)
         self.lab.setMinimumWidth(150)
+        parent = SC.PARENT_CONTROL.get(path)
+        self.child = bool(parent and parent in model.schema.fields and parent.rpartition(".")[0] == path.rpartition(".")[0])
+        if self.child:                       # depends on the control above: indent it under that control
+            self.lab.setText("↳  " + self.meta.label)
+            self.lab.setContentsMargins(14, 0, 0, 0)
+            self.lab.setObjectName("childLabel")
         self.editor = self._make_editor()
         self.editor.setToolTip(tip)
         self.reset = QToolButton()
@@ -166,9 +172,8 @@ class FieldRow:
         elif fi.kind == "bool":
             ed = ToggleSwitch(bool(val))
             ed.toggled.connect(lambda on: commit(bool(on)))
+            ed.setToolTip("On" if val else "Off")
             hl.addWidget(ed)
-            self.state_lab = label("On" if val else "Off", "muted")
-            hl.addWidget(self.state_lab)
             hl.addStretch()
         elif fi.kind == "choice":
             ed = ChoiceCombo(fi.choices or [], SC.CHOICE_LABELS, val)
@@ -274,7 +279,6 @@ class FieldRow:
                 ed.setValue(v)
             elif isinstance(ed, ToggleSwitch):
                 ed.setChecked(bool(v))
-                self.state_lab.setText("On" if v else "Off")
             elif isinstance(ed, ChoiceCombo):
                 ed.setValue(v)
             elif isinstance(ed, QComboBox):
@@ -334,8 +338,12 @@ class SettingsForm(QWidget):
     action = Signal(str)                 # "auto_gas", "ion_browser"
 
     def __init__(self, model, group: str, paths: list[str] | None = None, parent=None,
-                 show_inactive: bool = False, show_advanced: bool = False, compact: bool = False):
+                 show_inactive: bool = False, show_advanced: bool = False, compact: bool = False,
+                 flat: bool = False, minimal: bool = False):
+        """``flat``: one untitled section in the given order (for the Setup cards, whose settings come from
+        several blocks). ``minimal``: no ⓘ icon column – the label's tooltip carries the help."""
         super().__init__(parent)
+        self.minimal = minimal
         self.model = model
         self.group = group
         self.show_inactive = show_inactive
@@ -351,7 +359,8 @@ class SettingsForm(QWidget):
             paths = [f.path for f in g.fields] if g else []
         comments = {p: schema.fields[p].comment for p in paths if p in schema.fields}
         values = model.values()
-        secs = SC.group_sections(group, [p for p in paths if p in schema.fields], values, comments)
+        paths = [p for p in paths if p in schema.fields]
+        secs = ([SC.Section("setup", "", paths)] if flat else SC.group_sections(group, paths, values, comments))
         for sec in secs:
             hdr = SectionHeader(sec.title) if sec.title else None
             if hdr:
@@ -374,13 +383,25 @@ class SettingsForm(QWidget):
                 grid.addWidget(row.editor_container, r, 2)
                 grid.addWidget(row.reset, r, 3)
                 grid.addWidget(row.help, r, 4)
+                if minimal:
+                    row.widgets.remove(row.help)
+                    row.help.hide()
                 grid.addWidget(row.note, r + 1, 2, 1, 3)
                 r += 2
             outer.addWidget(gw)
             self.sections.append((hdr, gw, rows))
-        self.empty = label("No settings are relevant for the current choices. Enable “Show inactive” to see them.",
-                           "muted", wrap=True)
+        self.empty = label("No settings in this block are used by the current choices.", "muted", wrap=True)
         outer.addWidget(self.empty)
+        # settings the current choices do not use: one labelled link, in place (progressive disclosure)
+        self.unused_btn = QPushButton()
+        self.unused_btn.setObjectName("link")
+        self.unused_btn.setCursor(Qt.PointingHandCursor)
+        self.unused_btn.setToolTip("Settings that the current choices do not use (dimmed, with the reason). You can "
+                                   "still edit them, e.g. to prepare a switch.")
+        self.unused_btn.clicked.connect(lambda: self.set_flags(show_inactive=not self.show_inactive))
+        self.unused_btn.setVisible(False)
+        self.offer_unused = not minimal
+        outer.addWidget(self.unused_btn, 0, Qt.AlignLeft)
         outer.addStretch(1)
         self.refresh()
 
@@ -417,11 +438,25 @@ class SettingsForm(QWidget):
                 hdr.setVisible(vis)
             any_vis |= vis
         self.empty.setVisible(not any_vis)
+        n_unused = sum(1 for r in self.rows.values() if not SC.field_active(r.path, values)[0]
+                       and (self.show_advanced or not r.meta.advanced))
+        if self.offer_unused and n_unused:
+            self.unused_btn.setText((f"Hide the {n_unused} unused setting{'s' * (n_unused != 1)}" if self.show_inactive
+                                     else f"Show {n_unused} setting{'s' * (n_unused != 1)} not used by the current "
+                                          f"choices"))
+            self.unused_btn.setIcon(icons.icon("chevron_down" if not self.show_inactive else "chevron_up",
+                                               T.c("accent"), 14))
+        n_active = len(self.rows) - sum(1 for r in self.rows.values() if not SC.field_active(r.path, values)[0])
+        self.unused_btn.setVisible(self.offer_unused and n_unused > 0 and n_active > 0)
+        if any_vis is False and self.offer_unused and n_unused:
+            self.empty.setVisible(True)
 
     def focus_field(self, path: str):
         row = self.rows.get(path)
         if row is None:
             return None
+        if not row.lab.isVisible() and not self.show_inactive and self.offer_unused:
+            self.set_flags(show_inactive=True)          # a link to an unused setting opens the folded part
         row.ed.setFocus()
         return row.editor_container
 
@@ -464,6 +499,12 @@ class SettingsForm(QWidget):
                 return f"{float(v['plasma_state.T_i']) * 8.617333e-5:.4g} eV"
             if path == "plasma_state.T_e":
                 return f"{float(v['plasma_state.T_e']) * 8.617333e-5:.4g} eV"
+            if path in ("emission.enable_cathode_external_emission", "emission.enable_anode_external_emission"):
+                who = "cathode" if "cathode" in path else "anode"
+                mech = dict(SC.MECHANISMS)
+                on = [mech.get(m, m) for m in SC.emission_mechanisms(v, who)]
+                return ("mechanisms: " + ", ".join(on)) if on else ("no mechanism selected yet" if v.get(path)
+                                                                     else "")
             if path == "emission.gamma":
                 g = float(v["emission.gamma"])
                 return f"breakdown criterion ln(1 + 1/γ) = {math.log(1 + 1 / g):.3g}" if g > 0 else ""

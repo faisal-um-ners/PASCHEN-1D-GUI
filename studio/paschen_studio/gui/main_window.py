@@ -15,7 +15,7 @@ from .. import advisor as A
 from .. import solver as S
 from ..model import StudioModel, new_model_from_case, unique_run_name
 from ..sweep import sweep_jobs
-from ..units import human_duration
+from ..units import human_bytes, human_duration
 from . import icons
 from . import theme as T
 from .builder import ModelPage
@@ -25,10 +25,16 @@ from .home_page import HomePage
 from .jobs import JobManager
 from .results_page import ResultsPage
 from .run_page import RunPage
-from .widgets import label, push
+from .widgets import RunButton, label, push
 
 PAGES = [("home", "Home", "home"), ("model", "Model", "model"), ("run", "Simulate", "play"),
          ("results", "Results", "results"), ("help", "Help", "help")]
+
+STEP_TIPS = {"home": "Home – choose a starting point", "model": "Step 1 of 3 – build and check the model",
+             "run": "Step 2 of 3 – run the simulation", "results": "Step 3 of 3 – explore the results",
+             "help": "Help and documentation"}
+CRUMBS = {"home": "WELCOME", "model": "STEP 1 OF 3 · BUILD THE MODEL", "run": "STEP 2 OF 3 · RUN",
+          "results": "STEP 3 OF 3 · EXPLORE RESULTS", "help": "HELP"}
 
 DEMO_OVERRIDES = {
     # coarse but complete version of the paper's nitrogen DBD benchmark (~1 minute on a laptop core)
@@ -112,7 +118,7 @@ class MainWindow(QMainWindow):
             b.setCheckable(True)
             b.setFixedSize(68, 60)
             b.setCursor(Qt.PointingHandCursor)
-            b.setToolTip(f"{text}  (Ctrl+{i + 1})")
+            b.setToolTip(f"{STEP_TIPS.get(key, text)}  (Ctrl+{i + 1})")
             self.nav.addButton(b, i)
             self.nav_btns[key] = b
             rv.addWidget(b, 0, Qt.AlignHCenter)
@@ -159,13 +165,15 @@ class MainWindow(QMainWindow):
         self.b_redo.clicked.connect(self.redo)
         self.b_save = push("Save", icon_name="save", tip="Save the model (Ctrl+S)")
         self.b_save.clicked.connect(self.save)
-        self.b_check = push("Check", icon_name="check", tip="Check the model (Ctrl+Shift+K)")
-        self.b_check.clicked.connect(self.check)
-        self.b_test = push("Test run", icon_name="flask", tip="Quick test: 2 % of the time steps (Shift+F5)")
-        self.b_test.clicked.connect(lambda: self.run_current(test=True))
-        self.b_runh = push("Run", "run", icon_name="play", tip="Run the model (F5)")
+        # one primary action; the variants live in its small menu (progressive disclosure)
+        self.b_runh = RunButton("Run", tip="Run the model (F5)")
         self.b_runh.clicked.connect(lambda: self.run_current())
-        for b in (self.b_undo, self.b_redo, self.b_save, self.b_check, self.b_test, self.b_runh):
+        self.b_runh.add_action("Test run – 2 % of the time steps", lambda: self.run_current(test=True), "flask",
+                               "Shift+F5")
+        self.b_runh.add_action("Parameter sweep…", self.sweep, "sweep", "Ctrl+Shift+R")
+        self.b_runh.menu.addSeparator()
+        self.b_runh.add_action("Check the model now", self.check, "check", "Ctrl+Shift+K")
+        for b in (self.b_undo, self.b_redo, self.b_save, self.b_runh):
             hl.addWidget(b)
         mv.addWidget(header)
 
@@ -188,6 +196,7 @@ class MainWindow(QMainWindow):
         self.run_page.requestRun.connect(lambda: self.run_current())
         self.run_page.requestTest.connect(lambda: self.run_current(test=True))
         self.run_page.requestSweep.connect(self.sweep)
+        self.run_page.requestModel.connect(lambda: self.go(1))
         self.results = ResultsPage(self.settings, self.result_folders)
         self.results.loadModel.connect(self.open_model)
         self.help = HelpPage()
@@ -309,17 +318,31 @@ class MainWindow(QMainWindow):
             self.results.refresh()
         if key == "home":
             self.home.refresh_recent()
+        if key == "run":
+            self._refresh_run_page()
         self._update_header()
+
+    def _refresh_run_page(self):
+        """Tell the Simulate page's empty state what it would run and whether that can run now."""
+        try:
+            issues = self.model_page.issues or self.model_page.run_check(deep=False)
+            ne = sum(1 for i in issues if i.level == "error")
+            e = A.estimate(self.model)
+            summary = (f"Estimated run time ≈ {human_duration(e['runtime_s'])} · output ≈ "
+                       f"{human_bytes(e['bytes_total'])}. Not sure about the setup? A test run takes seconds.")
+        except Exception:
+            ne, summary = 0, ""
+        self.run_page.set_model_info(self.model.display_title(), summary, ne)
 
     def _update_header(self):
         idx = self.stack.currentIndex()
         key, text, _ = PAGES[idx]
         title = self.model.display_title() + ("  •" if self.dirty else "")
-        self.crumb.setText({"home": "WELCOME", "model": "MODEL BUILDER", "run": "SIMULATION",
-                            "results": "RESULTS", "help": "HELP"}[key])
+        self.crumb.setText(CRUMBS[key])
         self.h_title.setText({"home": APP_NAME, "results": "Results browser", "help": "Documentation"}.get(key, title))
-        model_ctx = key in ("model", "run")
-        for b in (self.b_undo, self.b_redo, self.b_save, self.b_check):
+        # header actions only where they apply: editing and running belong to the model page
+        model_ctx = key == "model"
+        for b in (self.b_undo, self.b_redo, self.b_save, self.b_runh):
             b.setVisible(model_ctx)
         self.b_undo.setEnabled(self.model.can_undo())
         self.b_redo.setEnabled(self.model.can_redo())

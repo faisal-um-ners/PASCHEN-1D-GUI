@@ -337,8 +337,19 @@ class PlotCanvas(QWidget):
         self.b_more.setPopupMode(QToolButton.InstantPopup)
         self.b_more.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
         self.b_more.setVisible(False)
+        # plot tools appear when the pointer is over the plot (progressive disclosure: a page with four plots
+        # no longer shows 24+ icons at rest); right-click offers the same actions
+        self.tools = QWidget()
+        tl = QHBoxLayout(self.tools)
+        tl.setContentsMargins(0, 0, 0, 0)
+        tl.setSpacing(1)
         for b in (self.b_home, self.b_pan, self.b_zoom, self.b_log, self.b_exp, self.b_csv, self.b_copy, self.b_more):
-            hb.addWidget(b)
+            tl.addWidget(b)
+        sp = self.tools.sizePolicy()
+        sp.setRetainSizeWhenHidden(True)
+        self.tools.setSizePolicy(sp)
+        self.tools.setVisible(False)
+        hb.addWidget(self.tools)
         self.b_log.setVisible(log_toggle)
         self.b_home.clicked.connect(self.reset_view)
         self.b_pan.clicked.connect(self._pan)
@@ -356,6 +367,16 @@ class PlotCanvas(QWidget):
         self.canvas.mpl_connect("button_release_event", lambda e: self._mark_user_view())
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._menu)
+
+    def enterEvent(self, e):  # noqa: N802
+        self.tools.setVisible(True)
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):  # noqa: N802
+        # keep the tools visible while a mode is active, so the state stays visible
+        if not (self.b_pan.isChecked() or self.b_zoom.isChecked() or self.b_log.isChecked()):
+            self.tools.setVisible(False)
+        super().leaveEvent(e)
 
     def resizeEvent(self, e):  # noqa: N802
         super().resizeEvent(e)

@@ -89,7 +89,7 @@ class RunView(QWidget):
         self.title.setObjectName("h3")
         hdr.addWidget(self.title, 1)
         self.b_load = push("Open model in builder", icon_name="model")
-        self.b_load.setToolTip("Load the exact settings of this run into the Model Builder")
+        self.b_load.setToolTip("Load the exact settings of this run into the Model page")
         self.b_load.clicked.connect(self._load_model)
         self.b_folder = push("Show folder", icon_name="folder")
         self.b_folder.clicked.connect(lambda: self.info and QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.info.path))))
@@ -876,10 +876,12 @@ class ResultsPage(QWidget):
         t = label("Select a run on the left", "h3")
         t.setAlignment(Qt.AlignCenter)
         el.addWidget(t)
+        self.empty_title = t
         t2 = label("Runs started from the Studio and runs made with the PASCHEN-1D notebooks are listed here.",
                    "muted")
         t2.setAlignment(Qt.AlignCenter)
         el.addWidget(t2)
+        self.empty_sub = t2
         el.addStretch()
         self.stack.addWidget(empty)
         self.run_view = RunView(self)
@@ -900,6 +902,12 @@ class ResultsPage(QWidget):
         self.infos = discover(folders)
         self.folders_lab.setText("Scanning: " + " · ".join(str(f) for f in folders))
         self._fill(select)
+        none = not self.infos                 # say what to do next instead of "select a run" with no runs
+        self.empty_title.setText("No results yet" if none else "Select a run on the left")
+        self.empty_sub.setText("Run a model on the Simulate page – finished runs appear here automatically, together "
+                               "with runs made with the PASCHEN-1D notebooks." if none else
+                               "Runs started from the Studio and runs made with the PASCHEN-1D notebooks are listed "
+                               "here. Tick several to compare them.")
 
     def _fill(self, select: str | None = None):
         q = self.search.text().strip().lower()

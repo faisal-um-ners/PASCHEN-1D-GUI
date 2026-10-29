@@ -85,6 +85,23 @@ GROUP_INTRO = {
     "diagnostics.averaged_spatial": "Defaults for the time-/cycle-averaged notebook plots.",
 }
 
+# Settings that only matter when another switch/choice is on. The form indents them under that control, so
+# the dependency is visible at a glance (and, in the Essentials view, they appear only when it is on).
+PARENT_CONTROL = {
+    "boundary.enable_ionization_source": "boundary.enable_volume_sources",
+    "boundary.enable_recombination_sink": "boundary.enable_volume_sources",
+    "numerics.target_cfl_substep": "numerics.use_adaptive_substepping",
+    "numerics.target_diffusion_cfl_substep": "numerics.use_adaptive_substepping",
+    "numerics.max_substeps": "numerics.use_adaptive_substepping",
+    "numerics.adaptive_substep_overflow_policy": "numerics.use_adaptive_substepping",
+    "numerics.adaptive_substep_warn_every": "numerics.use_adaptive_substepping",
+    "numerics.numba_parallel": "numerics.hotloop_backend",
+    "emission.enable_cathode_external_emission": "emission.enable_external_emission",
+    "emission.enable_anode_external_emission": "emission.enable_external_emission",
+    "emission.electrode_material_mode": "emission.enable_external_emission",
+    "geometry.eps_r": "geometry.l",
+}
+
 ADVANCED_GROUPS = {"electron_swarm_data", "diagnostics.temporal", "diagnostics.spatial",
                    "diagnostics.averaged_spatial"}
 
@@ -236,7 +253,8 @@ FIELD_META: dict[str, Meta] = {
     "emission.vaughan_ks": M("Smoothness k_s", section="Vaughan model"),
     "emission.vaughan_z": M("z", section="Vaughan model"),
     "emission.vaughan_E0": M("E0", "eV", section="Vaughan model"),
-    "emission.enable_external_emission": M("External emission (master switch)", section="External emission"),
+    "emission.enable_external_emission": M("External emission", section="External emission",
+                                            hint="Master switch for every external emission mechanism below."),
     "emission.electrode_material_mode": M("Electrode material parameters", section="External emission"),
     "emission.enable_anode_external_emission": M("Anode emits", section="External emission"),
     "emission.enable_cathode_external_emission": M("Cathode emits", section="External emission"),

@@ -7,9 +7,9 @@ import re
 from PySide6.QtCore import (Property, QEasingCurve, QPoint, QPropertyAnimation, QRect, QRectF, QSize, Qt,
                             Signal)
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPainterPath
-from PySide6.QtWidgets import (QAbstractButton, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout,
-                               QLabel, QLayout, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QStyle,
-                               QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractButton, QButtonGroup, QComboBox, QFrame, QGraphicsDropShadowEffect,
+                               QHBoxLayout, QLabel, QLayout, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy,
+                               QStyle, QToolButton, QVBoxLayout, QWidget)
 
 from ..units import QuantityError, format_quantity, parse_quantity
 from . import icons
@@ -93,6 +93,78 @@ def push(text: str, obj: str | None = None, icon_name: str | None = None, icon_c
     if tip:
         b.setToolTip(tip)
     return b
+
+
+# ---------------------------------------------------------------------------
+class SegmentedControl(QFrame):
+    """A small two-or-more option switch ("Essentials | All settings"). Emits ``changed(index)``."""
+
+    changed = Signal(int)
+
+    def __init__(self, options: list[str], tips: list[str] | None = None, current: int = 0, parent=None):
+        super().__init__(parent)
+        self.setObjectName("segmented")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(3, 3, 3, 3)
+        lay.setSpacing(2)
+        self.group = QButtonGroup(self)
+        self.group.setExclusive(True)
+        self.buttons = []
+        for i, text in enumerate(options):
+            b = QPushButton(text)
+            b.setObjectName("segment")
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            if tips and i < len(tips):
+                b.setToolTip(tips[i])
+            self.group.addButton(b, i)
+            lay.addWidget(b, 1)
+            self.buttons.append(b)
+        self.buttons[max(0, min(current, len(options) - 1))].setChecked(True)
+        self.group.idClicked.connect(self.changed.emit)
+
+    def index(self) -> int:
+        return self.group.checkedId()
+
+    def setIndex(self, i: int, emit: bool = False):  # noqa: N802 - Qt naming style
+        if 0 <= i < len(self.buttons) and i != self.index():
+            self.buttons[i].setChecked(True)
+            if emit:
+                self.changed.emit(i)
+
+
+class RunButton(QWidget):
+    """The one primary action: a green "Run" button with a small attached menu for the variants
+    (test run, parameter sweep). Keeps a single prominent call to action instead of three equal buttons."""
+
+    def __init__(self, text: str = "Run", tip: str = "", parent=None):
+        super().__init__(parent)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        self.main = push(text, "run", icon_name="play", tip=tip)
+        self.main.setProperty("split", True)
+        self.more = QPushButton()
+        self.more.setObjectName("runMore")
+        self.more.setIcon(icons.icon("chevron_down", "#ffffff", 14))
+        self.more.setIconSize(QSize(14, 14))
+        self.more.setCursor(Qt.PointingHandCursor)
+        self.more.setToolTip("More ways to run: test run, parameter sweep")
+        self.menu = QMenu(self)
+        self.more.clicked.connect(self._popup)
+        lay.addWidget(self.main)
+        lay.addWidget(self.more)
+        self.clicked = self.main.clicked
+
+    def _popup(self):
+        self.menu.exec(self.more.mapToGlobal(self.more.rect().bottomLeft()))
+
+    def add_action(self, text: str, slot, icon_name: str | None = None, shortcut_hint: str = ""):
+        a = self.menu.addAction(text + (f"\t{shortcut_hint}" if shortcut_hint else ""))
+        if icon_name:
+            a.setIcon(icons.icon(icon_name, T.c("text2"), 16))
+        a.triggered.connect(slot)
+        return a
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +471,7 @@ class StatTile(QFrame):
         self.v.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.v.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         lay.addWidget(self.v)
-        self.s = label(sub, "hint")
+        self.s = label(sub, "hint", wrap=True)          # wraps instead of being cut off in narrow tiles
         self.s.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.s.setVisible(bool(sub))
         lay.addWidget(self.s)

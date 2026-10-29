@@ -50,7 +50,7 @@ class NewSimulationWizard(QDialog):
         t = label("New simulation", "h3")
         t.setStyleSheet("color: white;")
         sv.addWidget(t)
-        st = label("A few guided steps. You can change everything later in the Model Builder.", "hint", wrap=True)
+        st = label("A few guided steps. You can change everything later on the Model page.", "hint", wrap=True)
         sv.addWidget(st)
         sv.addSpacing(12)
         self.step_btns = []
@@ -301,7 +301,7 @@ class NewSimulationWizard(QDialog):
             4: "Secondary emission and optional external emission (field, thermionic, constant or laser "
                "photoemission). Only the parameters of the mechanisms you switch on are shown.",
             5: "How long to simulate and how finely. Estimates update instantly.",
-            6: "Name the model and review what you changed. You can still edit everything in the Model Builder.",
+            6: "Name the model and review what you changed. You can still edit everything on the Model page.",
         }[idx])
         self.b_back.setEnabled(idx > 0)
         self.b_next.setVisible(idx < len(STEPS) - 1)

@@ -202,7 +202,7 @@ def test_doc_rendering_keeps_text_after_images():
     assert "after the image" in text and "code line" in text
     guide = (STUDIO / "docs" / "USER_GUIDE.md").read_text(encoding="utf-8")
     b.show_markdown(guide, STUDIO / "docs")
-    assert "Tree (left)" in b.document().toPlainText()
+    assert "All settings – blocks (left)" in b.document().toPlainText()   # text after the Model-page images
     assert len(b.headings) > 5
 
 

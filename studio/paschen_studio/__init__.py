@@ -7,7 +7,7 @@ and it runs simulations only through the solver's public API
 and ``paschen_1d.run_simulation``) in a separate worker process.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 APP_NAME = "PASCHEN-1D Studio"
 APP_ORG = "PASCHEN-1D"

@@ -17,18 +17,28 @@ circuits. This guide walks through every page. Press **F1** in the app for the q
 | **Workspace** | The folder that receives run folders (default `studio/runs`, change in *File → Run workspace folder*). |
 
 Because a model only stores *changes*, it stays valid when PASCHEN-1D improves its case defaults, and you
-can always see exactly what you changed (Model Builder → **Overview**).
+can always see exactly what you changed (Model page → *All settings* → **Overview**).
 
 ---
 
 ## 2. Home
 
-* **New simulation – guided** opens the wizard (section 3).
-* **Open model…** opens a `*.p1d.json` file (examples are in `studio/examples`).
-* **1-minute demo** runs a coarse version of the paper's nitrogen nanosecond-pulse DBD benchmark and shows
-  the live monitor – the quickest way to see the whole workflow.
-* **Start from a validated case** – one card per PASCHEN-1D case with a description, tags and an estimated
-  run time. *Open case* loads it into the Model Builder; *Quick demo* runs a short version immediately.
+![Home](images/home.png)
+
+The Home page has two columns: what the software does on the left, where to start on the right.
+
+* **Left (40 %) – Simulate gas breakdown and discharges in a 1D gap.** A picture of the model: a voltage
+  source V_app(t) drives a 1D gas gap between anode and cathode through an external circuit (R, L, C),
+  with electrons and ions in the gap. Below it are the **three steps** of the workflow: choose a starting point →
+  set up and check the model (**Model** page) → run it and explore the results (**Simulate** and **Results**
+  pages). The page header always says which step you are on (*Step 1 of 3 · Build the model* …). At the
+  bottom: **Guided setup…** opens the wizard (section 3), **Open a model…** opens a `*.p1d.json` file
+  (examples are in `studio/examples`), your **recent** models, and *New here? Watch a 1-minute demo run* – a
+  coarse version of the nitrogen nanosecond-pulse DBD that opens the live monitor.
+* **Right (60 %) – Start from a validated case** (recommended). One row per PASCHEN-1D case with a one-line
+  summary and the estimated run time; hover a row for the full description, tags and module name. Click the
+  row or **Open** to load it into the Model page; **Demo** (on hover, or right-click) runs a short version
+  immediately. *Start here* marks the paper's nitrogen DBD benchmark, a good first run.
 
 ## 3. The guided wizard
 
@@ -46,56 +56,87 @@ can always see exactly what you changed (Model Builder → **Overview**).
    of dt, dx, run time and output size. Presets: *Quick look*, *Case default*, *Fine*.
 7. **Review** – name the model, review the changed settings and the model check; *Create* or *Create & run*.
 
-## 4. Model Builder
+## 4. Model page
 
-![Model Builder](images/model_builder.png)
+The Model page has two views; the switch at its top left chooses one (the choice is remembered):
 
-**Tree (left).** The solver's configuration blocks, grouped as *Study*, *Plasma physics*, *Drive & surfaces*,
-*Output*. A `•N` badge counts changed settings; grey blocks are not used by your current choices (hover for
-the reason); a red icon marks a block with an error. **Find a setting…** (`Ctrl+K`) searches every setting by
-name, meaning or solver comment.
+* **Setup** (default) – the settings most studies change, as one short form in the order you think about the
+  problem: **Gas**, **Gap**, **Applied voltage**, **External circuit**, **Electrodes**, **Run length &
+  resolution** – about 20 settings, with the live preview beside them. Only what matters for your choices is
+  shown (e.g. τ and t_peak only for a Gaussian pulse, R_m only for circuits that contain it). Each card has a
+  **More … settings** link that opens the complete block in *All settings*. Hovering a card shows its preview
+  (device, circuit, waveform …).
+* **All settings** – every solver setting, block by block: physics closures, boundary conditions, numerical
+  scheme, output, notebook-plot defaults and expert options.
 
-**Settings (middle).** Generated from the solver's dataclasses:
+![Model page – Setup](images/model_builder.png)
 
-* Labels in plain language; hover a label or the ⓘ icon for the solver's own comment, the configuration path
-  (`cfg.circuit.R0`), the type and the case default.
+**Find a setting…** (`Ctrl+K`, top right) searches every setting by name, meaning or solver comment. Search
+results, *Go to* links and the model check open the right place: the Setup form if the setting is there,
+otherwise *All settings*. Nothing is out of reach.
+
+![Model page – All settings](images/model_all.png)
+
+**All settings – blocks (left).** The solver's configuration blocks, grouped as *Study*, *Plasma physics*,
+*Drive & surfaces*, *Output*. A `•N` badge counts changed settings; grey blocks are not used by your current
+choices (hover for the reason); a red icon marks a block with an error. **Overview** at the top summarises the
+model: title and notes, gas, gap, drive, circuit, simulated time, the classical breakdown voltage and the table
+of changed settings.
+
+**Settings** (the Setup cards and the middle of *All settings*) are generated from the solver's dataclasses:
+
+* Labels in plain language; hover a label (or the ⓘ icon in *All settings*) for the solver's own comment, the
+  configuration path (`cfg.circuit.R0`), the type and the case default.
 * **Units**: type `3.5 mm`, `16 pF`, `70 us`, `400k`, `0.4 MOhm`, `13.56 MHz`, `1e-11`, `inf` … The field shows
   compact engineering notation and full precision while you edit. Invalid input turns red and explains why.
-* A blue left edge and a dot mark changed settings; **↺** resets one setting, **Reset** the whole block.
+* A blue left edge and a dot mark changed settings; **↺** resets one setting, **Reset block** (shown only when
+  the block has changes) the whole block.
+* Switches that depend on another switch are indented under it with **↳** (e.g. *Impact ionization* and
+  *Recombination sink* under *Volume sources*; *Cathode emits* under *External emission*).
 * **Only relevant settings are shown** – e.g. τ and t_peak only for a Gaussian pulse, R_m only for topologies
   that contain it, laser parameters only when photoemission is enabled, `anode_*`/`cathode_*` parameters only
-  in *separate* material mode. **Inactive** shows the hidden ones (dimmed, with the reason);
-  **Advanced** shows expert knobs (Picard iteration, limiter θ, quadrature grids …).
+  in *separate* material mode. *All settings* shows the hidden ones (dimmed, with the reason) and the expert
+  knobs (Picard iteration, limiter θ, quadrature grids …).
 * Derived values appear under key fields: dt and run time under *Nt*, dx under *Nx*, pd and C_gap under *L*,
   N and pd under *p*, E/N under *V_peak*, number of snapshots and output size under *save_every* …
-* **Learn more** (below the settings) shows background notes from the solver's configuration guide;
+* **Learn more** (below the settings of a block) shows background notes from the solver's configuration guide;
   long notes wrap to the panel width and diagrams scroll inside their own box.
 * Special editors: electron swarm tables (all 42 bundled BOLSIG+ tables, the current gas first), the **ion
   transport library** (818 matched LXCat mobility/diffusion pairs + mobility-only datasets, with plots), and
   **Use bundled tables** for any gas.
 
-**Preview (right).** Device schematic · circuit diagram (shorted/open elements of the MNA network are shown
+**Preview (right, in both views).** Device schematic · circuit diagram (shorted/open elements of the MNA network are shown
 as removed) · V_app(t) with laser/emission windows · classical breakdown estimate · Townsend α/N and μN versus
 E/N from the solver's own closures with the mean applied E/N marked.
 
-**Model check (bottom).** PASCHEN-1D's `validate_simulation_config` plus studio advice:
-estimated run time and output size, free disk space, snapshot count, drift-CFL / diffusion stability
-estimate, gas-closure consistency, emission/boundary consistency, existing run folders.
-Buttons fix common problems in one click; **›** jumps to the setting.
+**Model check (bottom strip).** One line says whether the model can run (**Ready to run** or the number of
+errors) and what it will cost: estimated run time, output size, time steps × grid points. The check runs
+automatically as you edit (the ↻ button re-runs it). **Details** folds out every finding – PASCHEN-1D's
+`validate_simulation_config` plus studio advice: free disk space, snapshot count, drift-CFL / diffusion
+stability estimate, gas-closure consistency, emission/boundary consistency, existing run folders. Buttons fix
+common problems in one click; **›** jumps to the setting. When a new error appears the details open by
+themselves, and fold away again once it is fixed.
 
-**Overview** (top of the tree) summarises the model: title and notes, gas, gap, drive, circuit, time, grid,
-run-time estimate, output size, breakdown estimate and the table of changed settings.
+**Header.** *Undo / Redo*, **Save** and the green **Run** button. The small arrow next to *Run* holds the
+variants: **Test run** (`Shift+F5`), **Parameter sweep…** (`Ctrl+Shift+R`) and **Check the model now**
+(`Ctrl+Shift+K`). These actions appear on the Model page, where the model is edited.
 
 ## 5. Simulate
 
 ![Live monitor](images/simulate.png)
 
+* Before the first run the page says what it would run – **Ready to run: <model>** with the estimated run
+  time – and offers **Run** and **Test run first**. If the model check has errors it says so and offers
+  **Go to the Model page** instead.
 * **Run** (`F5`) runs the model; **Test run** (`Shift+F5`) runs 2 % of the time steps with the same dt –
-  ideal to verify a new setup. Runs are queued; set *Preferences → Simultaneous runs* to use more cores.
+  ideal to verify a new setup. Once runs exist, **Run current model** at the top of the queue (its arrow holds
+  *Test run* and *Parameter sweep…*) starts more. Runs are queued; set *Preferences → Simultaneous runs* to use
+  more cores.
 * If the run folder exists you can **keep both** (a new folder name) or **overwrite**.
 * Each run is a separate Python process, so the interface stays responsive and several runs can proceed.
 * **Pause / Resume**, **Stop & keep results** (ends the time loop; the solver still writes
-  `run_metadata.json`, so the partial run is analysable like any other), **Abort**.
+  `run_metadata.json`, so the partial run is analysable like any other), **Abort** – shown while the run is
+  active. When it has finished, **Open in Results** takes you to step 3.
 * Progress, ETA, speed and simulated time; the **live monitor** shows two profile plots and two history plots
   (choose the quantities with the drop-downs) refreshed every second, with zoom that survives updates.
 * A red banner warns when the solution becomes non-finite or the drift CFL exceeds 1.
@@ -128,7 +169,8 @@ PASCHEN-1D folder and any extra folders (folder button or *Preferences*). Sweeps
 
 Every plot has: reset view (also double-click), pan, zoom-to-rectangle, mouse-wheel zoom, logarithmic y,
 **Export figure**, **Export data (CSV)** and **Copy image** (in narrow panels the last three sit under one
-export button). Exported figures are re-rendered with Matplotlib – not screenshots.
+export button). The tool icons appear when the pointer is over the plot (they stay while pan, zoom or log is
+on); right-click a plot for the same actions. Exported figures are re-rendered with Matplotlib – not screenshots.
 
 **Export figure** opens a dialog with a **live preview** of the file you are about to save; every change is
 shown immediately. All fields start from the plot on screen – labels, legend texts, curve colours and styles,
@@ -155,7 +197,7 @@ remembered between exports.
 
 ## 8. Parameter sweeps
 
-*Run → Parameter sweep…* (or the button on the Simulate page): pick any numeric setting, a linear or
+*Run → Parameter sweep…* (or the arrow next to the Run button): pick any numeric setting, a linear or
 logarithmic range or a list of values (units allowed), a run-name prefix and how many runs may execute at
 the same time. The sweep is stored in the model, so `python -m paschen_studio sweep model.p1d.json`
 repeats it on a workstation or cluster.

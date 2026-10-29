@@ -5,7 +5,7 @@
 <a href="https://github.com/pbis-umich/PASCHEN-1D">PASCHEN-1D</a> gas-discharge solver</b><br>
 Build a model with guided forms · check it · run it with live plots · analyse and export the results – no code required.</p>
 
-<p align="center"><img src="docs/images/model_circuit.png" alt="PASCHEN-1D Studio – Model Builder with the external-circuit diagram" width="900"></p>
+<p align="center"><img src="docs/images/model_circuit.png" alt="PASCHEN-1D Studio – Model page (Setup) with the external-circuit diagram" width="900"></p>
 
 PASCHEN-1D Studio is an **add-on** that lives in its own folder (`studio/`) inside PASCHEN-1D.
 It never modifies the solver: it reads PASCHEN-1D's own configuration classes to build its forms and
@@ -57,9 +57,14 @@ python -m paschen_studio info                                  # versions, paths
 
 ## What the studio adds
 
-* **Home page** with the validated PASCHEN-1D cases, a *1-minute demo* and recent models.
+* **A calm, step-by-step interface** – Home offers one clear way in (the validated cases) with the guided setup,
+  saved and recent models to the side; the workflow is three steps (build & check → run → explore) and the
+  header always says which step you are on.
+* **Setup | All settings** – the Model page opens with one short form of the settings most studies change
+  (gas, gap, voltage, circuit, electrodes, run length) beside a live preview; *All settings* shows every solver
+  block, and search or any *Go to* link takes you straight to a setting.
 * **Guided wizard** – starting case → gas & gap → applied voltage → circuit → emission → resolution → review.
-* **Model Builder** – all 18 configuration blocks (~200 settings) generated from the solver's dataclasses, with
+* **Model page** – all 18 configuration blocks (~200 settings) generated from the solver's dataclasses, with
   plain-language labels, the solver's own comments as help, unit-aware inputs (`3.5 mm`, `16 pF`, `70 us`,
   `0.4 MOhm`, `inf`), *only the settings that matter for your current choices*, ↺ reset per setting, undo/redo
   and `Ctrl+K` search.
@@ -103,6 +108,8 @@ studio leaves the solver folder untouched.
 * [How it works](docs/ARCHITECTURE.md) – how the studio talks to PASCHEN-1D without changing it.
 * [Performance](docs/PERFORMANCE.md) – Studio vs. Jupyter notebook run times, `numba_parallel` and
   simultaneous runs (same speed as the notebook; up to 3× throughput with simultaneous runs).
+* [Usability review](docs/USABILITY_REVIEW.md) – the interface redesign of version 1.1 (Nielsen heuristics,
+  progressive disclosure, Double Diamond), with before/after screenshots and measurements.
 * In the app: **Help** (F1) shows a quick start, this guide, the PASCHEN-1D tutorial and README.
 
 ## Citation

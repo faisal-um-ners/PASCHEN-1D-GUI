@@ -45,26 +45,29 @@ QUICKSTART = f"""
 You never have to edit Python files: every setting of the solver is available in forms.
 
 ## 1 · Create a model
-* **Home → New simulation – guided** walks you through gas, gap, voltage, circuit, emission and resolution.
-* Or open one of the **validated cases** (nitrogen DBD, argon DC glow, argon/helium photoemission,
-  deuterium DBD) and change only what you need.
+* On **Home**, open one of the **validated cases** (nitrogen DBD, argon DC glow, argon/helium photoemission,
+  deuterium DBD) and change only what you need – the recommended start.
+* Or **Home → Guided setup…** walks you through gas, gap, voltage, circuit, emission and resolution.
 * A *model* is a base case plus the settings you changed. It is saved as a small `*.p1d.json` file.
 
 ## 2 · Edit settings
-* The **Model Builder** tree groups the solver's configuration blocks.
+* In *All settings* the block list groups the solver's configuration blocks.
 * Type values with units: `3.5 mm`, `16 pF`, `70 us`, `0.4 MOhm`, `inf`. Hover any field for the solver's
   own explanation; the ↺ button restores the case default.
-* Settings that do not apply to your current choices are hidden (toggle **Inactive** to see them).
+* The Model page opens in **Setup**: one short form – gas, gap, applied voltage, circuit, electrodes, run
+  length – with a live preview. **All settings** (switch at the top left) shows every solver block.
 * **{_keys("Ctrl+K")}** finds any setting by name or meaning.
 * The **Preview** shows the gap, the circuit diagram, V_app(t), a classical Paschen breakdown estimate and
   the transport coefficients – all computed with the solver's own functions.
 
 ## 3 · Check
-The **Model check** runs PASCHEN-1D's `validate_simulation_config` and adds advice (run time, disk space,
-stability, gas/closure consistency). Many problems have a one-click **fix** button.
+The **model check** strip at the bottom of the Model page runs automatically: *Ready to run* (with run time
+and output size) or the number of errors. **Details** shows PASCHEN-1D's `validate_simulation_config` plus
+advice (disk space, stability, gas/closure consistency); many problems have a one-click **fix** button.
 
 ## 4 · Run
-* **F5** runs the model; **Test run** ({_keys("Shift+F5")}) runs 2 % of the time steps with the same dt.
+* **Run** (F5) runs the model; the arrow next to it offers **Test run** ({_keys("Shift+F5")}, 2 % of the time
+  steps with the same dt) and **Parameter sweep…**.
 * Runs are queued; each is a separate process, so the interface never freezes.
 * **Pause**, **Stop & keep results** (the solver still writes its metadata) or **Abort**.
 * The **live monitor** shows profiles and histories while the solver works.
