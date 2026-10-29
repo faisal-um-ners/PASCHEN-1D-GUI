@@ -538,18 +538,40 @@ class PlotCanvas(QWidget):
             return None
 
     def export_dialog(self):
+        """Open the export window. It is non-modal on purpose: the system colour picker (macOS Colors panel
+        and its eyedropper) needs events that a blocking modal session would hold back."""
         if self._spec is None:
             return
-        from .export_dialog import ExportDialog, export_figure
+        from .export_dialog import ExportDialog
+        old = getattr(self, "_export_dlg", None)
+        if old is not None:
+            try:
+                if old.isVisible():
+                    old.raise_()
+                    old.activateWindow()
+                    return
+            except RuntimeError:                     # already deleted
+                pass
         key = self._spec.signature()
         if not hasattr(self, "_export_state"):
             self._export_state = {}
         dlg = ExportDialog(self, self._spec, self.current_view(), self.export_name, state=self._export_state.get(key))
-        ok = dlg.exec() == QDialog.Accepted
-        self._export_state[key] = dlg.state()          # reopening the dialog for this plot keeps the edits
-        if not ok:
-            return
-        opts = dlg.options()
+        dlg.setWindowModality(Qt.NonModal)
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
+        self._export_dlg = dlg
+
+        def _finished(result, d=dlg, k=key):
+            self._export_dlg = None
+            self._export_state[k] = d.state()        # reopening the dialog for this plot keeps the edits
+            if result == QDialog.Accepted:
+                self._save_export(d.spec, d.options())
+        dlg.finished.connect(_finished)
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    def _save_export(self, spec, opts):
+        from .export_dialog import export_figure
         ext = opts.fmt
         path, _ = QFileDialog.getSaveFileName(self, "Export figure", f"{self.export_name}.{ext}",
                                               f"{ext.upper()} (*.{ext})")
@@ -558,7 +580,7 @@ class PlotCanvas(QWidget):
         if not path.lower().endswith("." + ext):
             path += "." + ext
         try:
-            export_figure(self._spec, opts, path)
+            export_figure(spec, opts, path)
         except Exception as exc:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Export failed", f"The figure could not be written:\n{exc}")

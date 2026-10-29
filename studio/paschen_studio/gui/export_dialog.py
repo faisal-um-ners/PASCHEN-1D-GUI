@@ -20,8 +20,8 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import QMimeData, QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QFrame,
-                               QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy,
-                               QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget, QWidgetAction)
+                               QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
+                               QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from . import theme as T
 from .plotting import FigureSpec, render
@@ -434,72 +434,58 @@ def _mark(w, bad: bool):
     w.style().polish(w)
 
 
-SWATCHES = ["#1f4e9c", "#d1495b", "#2a9d8f", "#e9a03b", "#6a4c93", "#3d5a80", "#8d6e63", "#111111",
-            "#0072B2", "#D55E00", "#009E73", "#E69F00", "#CC79A7", "#56B4E9", "#7f7f7f", "#bbbbbb"]
-
-
 class ColorButton(QToolButton):
-    """Swatch with a quick colour menu (16 publication colours) and a 'Custom colour…' picker.
+    """Swatch that opens the system colour picker (on macOS the full Colors panel: wheel, sliders,
+    palettes, pencils and the eyedropper).
 
-    The picker is Qt's own colour dialog, opened window-modal with ``open()``. The native macOS colour
-    panel is application-global and non-modal: opened from inside the modal export dialog it can end up
-    behind it, so neither window takes input and the app looks frozen. Qt's dialog avoids that on every
-    platform (macOS, Windows, Linux)."""
+    The picker is opened *non-blocking* (``show()``, not ``getColor()``/``exec()``), and the export dialog
+    itself is non-modal. Inside a blocking modal session macOS does not deliver the clicks the eyedropper
+    needs when a colour is picked outside the app's windows, so the app looked frozen; without a modal
+    session the panel behaves exactly as in any other Mac application."""
+
+    _active = None                     # one colour picker at a time (macOS has a single shared panel)
 
     def __init__(self, color: str, on_change):
         super().__init__()
         self._on_change = on_change
-        self._dlg = None
         self.setFixedSize(30, 24)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip("Line colour – click to choose")
-        self.setPopupMode(QToolButton.InstantPopup)
-        self.setMenu(self._build_menu())
         self.set_color(color)
-
-    def _build_menu(self) -> QMenu:
-        menu = QMenu(self)
-        grid_w = QWidget()
-        grid = QGridLayout(grid_w)
-        grid.setContentsMargins(8, 8, 8, 4)
-        grid.setSpacing(4)
-        for i, c in enumerate(SWATCHES):
-            b = QToolButton()
-            b.setFixedSize(22, 22)
-            b.setCursor(Qt.PointingHandCursor)
-            b.setToolTip(c)
-            b.setStyleSheet(f"QToolButton {{ background: {c}; border: 1px solid {T.c('border2')}; "
-                            f"border-radius: 4px; }} QToolButton:hover {{ border: 2px solid {T.c('accent')}; }}")
-            b.clicked.connect(lambda _=None, col=c: (menu.close(), self._choose(col)))
-            grid.addWidget(b, i // 8, i % 8)
-        act = QWidgetAction(menu)
-        act.setDefaultWidget(grid_w)
-        menu.addAction(act)
-        menu.addSeparator()
-        menu.addAction("Custom colour…", self._custom)
-        return menu
+        self.clicked.connect(self._pick)
 
     def set_color(self, c: str):
         self.color = QColor(c).name()
         self.setStyleSheet(f"QToolButton {{ background: {self.color}; border: 1px solid {T.c('border2')}; "
-                           f"border-radius: 5px; }} QToolButton::menu-indicator {{ image: none; width: 0px; }}")
+                           f"border-radius: 5px; }}")
 
-    def _choose(self, c: str):
-        if QColor(c).name() != self.color:
-            self.set_color(c)
+    def _choose(self, col: QColor):
+        if col.isValid() and col.name() != self.color:
+            self.set_color(col.name())
             self._on_change()
 
-    def _custom(self):
+    def _pick(self):
+        prev = ColorButton._active
+        if prev is not None:
+            try:
+                prev.reject()               # switch the picker to this line
+            except RuntimeError:            # already deleted
+                pass
         dlg = QColorDialog(QColor(self.color), self.window())
         dlg.setWindowTitle("Line colour")
-        dlg.setOption(QColorDialog.DontUseNativeDialog, True)
-        dlg.setWindowModality(Qt.WindowModal)
-        for i, c in enumerate(SWATCHES):
-            QColorDialog.setCustomColor(i, QColor(c))
-        dlg.colorSelected.connect(lambda col: self._choose(col.name()))
-        dlg.finished.connect(lambda _=None: dlg.deleteLater())
-        self._dlg = dlg                      # keep a reference while it is open
-        dlg.open()
+        dlg.setWindowModality(Qt.NonModal)
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
+        dlg.colorSelected.connect(self._choose)
+
+        def _done(_=None, d=dlg):
+            if ColorButton._active is d:
+                ColorButton._active = None
+        dlg.finished.connect(_done)
+        dlg.destroyed.connect(_done)        # also when the export window closes with the picker open
+        ColorButton._active = dlg
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
 
 def _section(text: str) -> QLabel:
