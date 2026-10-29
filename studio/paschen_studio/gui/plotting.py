@@ -585,7 +585,8 @@ class PlotCanvas(QWidget):
             for s in list(a.series) + (list(a.twin.series) if a.twin else []):
                 nm = s.label or a.ylabel or "y"
                 cols += [np.asarray(s.x), np.asarray(s.y)]
-                names += [f"{nm} | x: {a.xlabel}", f"{nm} | y: {a.ylabel if s in a.series else a.twin.ylabel}"]
+                on_main = any(s is t for t in a.series)          # identity: Series hold arrays
+                names += [f"{nm} | x: {a.xlabel}", f"{nm} | y: {a.ylabel if on_main else a.twin.ylabel}"]
         n = max((len(c) for c in cols), default=0)
         with open(path, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)

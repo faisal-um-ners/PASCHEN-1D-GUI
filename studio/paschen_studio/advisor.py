@@ -44,8 +44,28 @@ class Issue:
 DEFAULT_RATE_COEFF = 6.5e5        # macro steps/s ~ C / Nx  (calibrated on a laptop core)
 
 
+INF_ALLOWED = {"circuit.C_s", "circuit.L_p"}     # inf = element removed (short / open)
+
+
+def _safe_values(model) -> dict:
+    """Model values with impossible numbers (NaN, ±inf, non-numeric) replaced by the case defaults, so that
+    estimates never fail; the model check reports the bad value itself."""
+    v = dict(model.values())
+    for path, fi in model.schema.fields.items():
+        if fi.kind not in ("float", "int"):
+            continue
+        x = v.get(path)
+        try:
+            ok = x is not None and math.isfinite(float(x))
+        except (TypeError, ValueError):
+            ok = False
+        if not ok:
+            v[path] = model.default(path)
+    return v
+
+
 def estimate(model, measured_rate_coeff: float | None = None) -> dict[str, Any]:
-    v = model.values()
+    v = _safe_values(model)
     Nt = int(v["numerics.Nt"])
     Nx = int(v["numerics.Nx"])
     T = float(v["run.T_total"])
@@ -176,14 +196,19 @@ _PATH_RE = re.compile(r"\b((?:run|numerics|geometry|plasma_state|plasma|local_fi
 
 def stability_estimate(model, v: dict | None = None) -> dict | None:
     """Drift CFL / diffusion number at the mean applied field and the sub-steps they require."""
-    v = v or model.values()
-    tr = transport_estimate(model)
+    v = v or _safe_values(model)
+    try:
+        tr = transport_estimate(model)
+    except Exception:                       # impossible inputs: the model check reports them
+        return None
     if "cfl" not in tr or not math.isfinite(tr["cfl"]):
         return None
     cfl, dn = float(tr["cfl"]), float(tr.get("diff_number", 0.0))
-    need = math.ceil(max(cfl / max(float(v["numerics.target_cfl_substep"]), 1e-9),
-                         dn / max(float(v["numerics.target_diffusion_cfl_substep"]), 1e-9), 1.0))
-    return dict(cfl=cfl, diff=dn, need=need)
+    need = max(cfl / max(float(v["numerics.target_cfl_substep"]), 1e-9),
+               dn / max(float(v["numerics.target_diffusion_cfl_substep"]), 1e-9), 1.0)
+    if not math.isfinite(need):
+        return None
+    return dict(cfl=cfl, diff=dn, need=math.ceil(need))
 
 
 def solver_validation(model) -> list[Issue]:
@@ -252,7 +277,20 @@ def table_checks(model) -> list[Issue]:
 def check_model(model, workspace: Path | None = None, measured_rate_coeff: float | None = None,
                 deep: bool = True) -> list[Issue]:
     issues = solver_validation(model)
-    v = model.values()
+    # numbers the solver may not check itself (e.g. NaN in an optional parameter)
+    flagged = {i.path for i in issues if i.level == "error"}
+    for path, val in model.overrides.items():
+        fi = model.schema.fields.get(path)
+        if fi is None or fi.kind not in ("float", "int", "optional_float") or path in flagged:
+            continue
+        try:
+            x = float(val) if val is not None else None
+        except (TypeError, ValueError):
+            x = float("nan")
+        if x is not None and (math.isnan(x) or (math.isinf(x) and path not in INF_ALLOWED)):
+            issues.append(Issue("error", f"{SC.meta_for(path, fi.comment).label} must be a finite number; got {val}.",
+                                path=path))
+    v = _safe_values(model)                 # bad numbers are reported above; advice uses safe values
     est = estimate(model, measured_rate_coeff)
 
     gas = str(v["plasma_state.gas"])

@@ -20,8 +20,8 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import QMimeData, QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QFrame,
-                               QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy,
-                               QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget)
+                               QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy,
+                               QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget, QWidgetAction)
 
 from . import theme as T
 from .plotting import FigureSpec, render
@@ -171,6 +171,24 @@ def tex_safe(s: str) -> str:
     return "$".join(out).replace("$$", "")      # merge neighbouring math pieces ($$ would be display math)
 
 
+def math_safe(s: str) -> str:
+    """For math fonts without Unicode Greek (Computer Modern): write Greek letters and symbols that appear in a
+    label containing $…$ math as math commands, so they are typeset instead of drawn as empty boxes."""
+    if not s or "$" not in s or s.count("$") % 2:
+        return s
+    parts = s.split("$")
+    for i, p in enumerate(parts):
+        table = {**_GREEK, **_SYMBOLS}
+        for ch, cmd in table.items():
+            if ch in p:
+                if i % 2 == 0:
+                    p = p.replace(ch, f"${cmd}$" if ch != "−" else "-")
+                else:
+                    p = p.replace(ch, cmd + " " if cmd.startswith("\\") else cmd)
+        parts[i] = p
+    return "$".join(parts).replace("$$", "")
+
+
 def latex_available() -> bool:
     return bool(shutil.which("latex") and shutil.which("dvipng"))
 
@@ -269,6 +287,15 @@ def build_spec(spec: FigureSpec, opts: ExportOptions) -> FigureSpec:
                 a.image.clabel = p.clabel
             if p.cmap:
                 a.image.cmap = p.cmap
+    if opts.family == "cm" and not opts.usetex:
+        s.suptitle = math_safe(s.suptitle)
+        for a in s.axes:
+            for obj in [a] + ([a.twin] if a.twin is not None else []):
+                obj.title, obj.xlabel, obj.ylabel = math_safe(obj.title), math_safe(obj.xlabel), math_safe(obj.ylabel)
+                for se in obj.series:
+                    se.label = math_safe(se.label)
+            if a.image is not None:
+                a.image.clabel = math_safe(a.image.clabel)
     if opts.usetex:
         s.suptitle = tex_safe(s.suptitle)
         for a in s.axes:
@@ -407,28 +434,72 @@ def _mark(w, bad: bool):
     w.style().polish(w)
 
 
+SWATCHES = ["#1f4e9c", "#d1495b", "#2a9d8f", "#e9a03b", "#6a4c93", "#3d5a80", "#8d6e63", "#111111",
+            "#0072B2", "#D55E00", "#009E73", "#E69F00", "#CC79A7", "#56B4E9", "#7f7f7f", "#bbbbbb"]
+
+
 class ColorButton(QToolButton):
-    """Swatch that opens a colour picker."""
+    """Swatch with a quick colour menu (16 publication colours) and a 'Custom colour…' picker.
+
+    The picker is Qt's own colour dialog, opened window-modal with ``open()``. The native macOS colour
+    panel is application-global and non-modal: opened from inside the modal export dialog it can end up
+    behind it, so neither window takes input and the app looks frozen. Qt's dialog avoids that on every
+    platform (macOS, Windows, Linux)."""
 
     def __init__(self, color: str, on_change):
         super().__init__()
         self._on_change = on_change
+        self._dlg = None
         self.setFixedSize(30, 24)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip("Line colour – click to choose")
-        self.clicked.connect(self._pick)
+        self.setPopupMode(QToolButton.InstantPopup)
+        self.setMenu(self._build_menu())
         self.set_color(color)
+
+    def _build_menu(self) -> QMenu:
+        menu = QMenu(self)
+        grid_w = QWidget()
+        grid = QGridLayout(grid_w)
+        grid.setContentsMargins(8, 8, 8, 4)
+        grid.setSpacing(4)
+        for i, c in enumerate(SWATCHES):
+            b = QToolButton()
+            b.setFixedSize(22, 22)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(c)
+            b.setStyleSheet(f"QToolButton {{ background: {c}; border: 1px solid {T.c('border2')}; "
+                            f"border-radius: 4px; }} QToolButton:hover {{ border: 2px solid {T.c('accent')}; }}")
+            b.clicked.connect(lambda _=None, col=c: (menu.close(), self._choose(col)))
+            grid.addWidget(b, i // 8, i % 8)
+        act = QWidgetAction(menu)
+        act.setDefaultWidget(grid_w)
+        menu.addAction(act)
+        menu.addSeparator()
+        menu.addAction("Custom colour…", self._custom)
+        return menu
 
     def set_color(self, c: str):
         self.color = QColor(c).name()
         self.setStyleSheet(f"QToolButton {{ background: {self.color}; border: 1px solid {T.c('border2')}; "
-                           f"border-radius: 5px; }}")
+                           f"border-radius: 5px; }} QToolButton::menu-indicator {{ image: none; width: 0px; }}")
 
-    def _pick(self):
-        c = QColorDialog.getColor(QColor(self.color), self, "Line colour")
-        if c.isValid():
-            self.set_color(c.name())
+    def _choose(self, c: str):
+        if QColor(c).name() != self.color:
+            self.set_color(c)
             self._on_change()
+
+    def _custom(self):
+        dlg = QColorDialog(QColor(self.color), self.window())
+        dlg.setWindowTitle("Line colour")
+        dlg.setOption(QColorDialog.DontUseNativeDialog, True)
+        dlg.setWindowModality(Qt.WindowModal)
+        for i, c in enumerate(SWATCHES):
+            QColorDialog.setCustomColor(i, QColor(c))
+        dlg.colorSelected.connect(lambda col: self._choose(col.name()))
+        dlg.finished.connect(lambda _=None: dlg.deleteLater())
+        self._dlg = dlg                      # keep a reference while it is open
+        dlg.open()
 
 
 def _section(text: str) -> QLabel:
