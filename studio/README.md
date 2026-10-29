@@ -19,7 +19,7 @@ You need **Python 3.10 – 3.13** (3.12 recommended). Everything else (NumPy, Sc
 is installed automatically.
 
 ```bash
-git clone https://github.com/faisal-um-ners/PASCHEN-1D-Temp.git
+git clone https://github.com/faisal-um-ners/PASCHEN-1D-GUI.git
 cd PASCHEN-1D-Temp
 pip install -e ./studio                  # studio + all solver dependencies
 python -m paschen_studio gui             # graphical interface   (or simply: paschen-studio)
