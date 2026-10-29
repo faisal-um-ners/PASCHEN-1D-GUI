@@ -4,15 +4,17 @@
 
 ## Summary
 
-Feedback from a first-time user (Asif Iqbal): the interface *"feels a bit busy, particularly the Home tab and
-some of the toggle controls in the Model tab. There is a lot to take in at once, and it is not always clear
-where to focus or what to do next."* He asked for a cleaner, more intuitive interface that keeps every
-scientific capability. He named four concepts (cognitive load, visual hierarchy, progressive disclosure,
-learnability and workflow clarity) and three references: Nielsen's *10 Usability Heuristics*, NN/g's
-*Progressive Disclosure* and the Design Council's *Double Diamond*.
+This review looks at PASCHEN-1D Studio through the eyes of a new user. The aim is an interface that is
+easy to learn and calm to work with, while every scientific capability is kept. Four usability concepts frame
+the review: **cognitive load** (how much the interface asks the user to take in and decide at once), **visual
+hierarchy** (how clearly the most important thing stands out), **progressive disclosure** (complexity
+introduced as it is needed) and **learnability and workflow clarity** (how easily someone understands the
+interface and moves through a task). The method draws on three established references: Nielsen's
+*10 Usability Heuristics*, the NN/g guidance on *Progressive Disclosure* and the Design Council's *Double
+Diamond*.
 
 The review followed the Double Diamond and went round it twice. The first redesign was checked against the
-request and judged **only partly** sufficient, mainly because the Model page was still busy. The second
+review goals and judged **only partly** sufficient, mainly because the Model page was still busy. The second
 redesign changed the structure of the Model page:
 
 * **Model: two levels.**
@@ -33,27 +35,27 @@ automatically). The PASCHEN-1D solver is unchanged; all work is in `studio/`.
 
 ![Home, before and after](images/ux/home_before_after.png)
 
-## 1 · Asif's request, point by point
+## 1 · Review goals, point by point
 
-| Point in the feedback | Done? | Where / evidence |
+| Goal | Met? | Where / evidence |
 |---|---|---|
-| Home tab feels busy | ✔ | Highlighted buttons 8 → 1, visible controls 17 → 9, words on the page 346 → 195. Tags, file names, paragraphs and secondary links were removed or moved to tooltips (§4). |
-| Toggle controls in the Model tab | ✔ | The *Advanced / Inactive / Reset* toggle trio on every block is gone. Setup has no view toggles; All settings has one in-place link per block for unused settings. On/Off captions removed; dependent switches indented under their master switch. *Reset block* appears only when the block has changes. |
-| "A lot to take in at once" (cognitive load) | ✔ | The Model page opens on one form (no 24-row tree, 3 → 2 panes). Changing pressure, gap, voltage and simulated time takes one form instead of 4 blocks found in a tree. The model check is one line. The empty Simulate page went from 41 controls to 2, and plot toolbars from 24 icons at rest to 0. |
-| "Not clear where to focus" (visual hierarchy) | ✔ | One highlighted button per page: *Open* on the recommended case, *Run* on the Model page and the Simulate empty state. Page titles and card titles carry the structure, and secondary text is grey. |
-| "Not clear what to do next" (workflow clarity) | ✔ | *Step x of 3* in the header. Home shows the 3 steps. The model-check strip says *Ready to run* or what to fix. The Simulate empty state offers *Run* / *Test run first*, or *Go to the Model page* if there are errors. A finished run offers *Open in Results*. Results with no runs says how to get some. |
+| A calm Home page | ✔ | Highlighted buttons 8 → 1, visible controls 17 → 9, words on the page 346 → 195. Tags, file names, paragraphs and secondary links were removed or moved to tooltips (§4). |
+| Fewer, clearer controls on the Model page | ✔ | The *Advanced / Inactive / Reset* toggle trio on every block is gone. Setup has no view toggles; All settings has one in-place link per block for unused settings. On/Off captions removed; dependent switches indented under their master switch. *Reset block* appears only when the block has changes. |
+| Cognitive load | ✔ | The Model page opens on one form (no 24-row tree, 3 → 2 panes). Changing pressure, gap, voltage and simulated time takes one form instead of 4 blocks found in a tree. The model check is one line. The empty Simulate page went from 41 controls to 2, and plot toolbars from 24 icons at rest to 0. |
+| Visual hierarchy | ✔ | One highlighted button per page: *Open* on the recommended case, *Run* on the Model page and the Simulate empty state. Page titles and card titles carry the structure, and secondary text is grey. |
+| Workflow clarity – the next step is always visible | ✔ | *Step x of 3* in the header. Home shows the 3 steps. The model-check strip says *Ready to run* or what to fix. The Simulate empty state offers *Run* / *Test run first*, or *Go to the Model page* if there are errors. A finished run offers *Open in Results*. Results with no runs says how to get some. |
 | Progressive disclosure | ✔ | Two levels, as NN/g recommends: Setup → All settings, with labelled links (*More gas settings*, *Show 103 settings not used by the current choices*). Expert content is one step away, and search or *Go to* opens the right place. |
-| Learnability | ✔ | Setup follows the physical problem, not the solver's code structure. Labels in plain language, with derived values (pd, E/N, dt, run time) under the fields. The "What it simulates" picture explains the model in one glance. Help, quick start and user guide are updated. |
-| Preserve all scientific capabilities | ✔ | Automated check: every one of the 208 settings is editable in All settings. Menus and shortcuts are unchanged, and no solver file was touched. |
-| Use the three references | ✔ | Nielsen heuristics: full 10-heuristic scorecard (§3). Progressive disclosure: two levels, information scent (§4). Double Diamond: two iterations, alternatives compared (§2). |
-| Screenshots of Home, Model, Simulate as input | ✔ | Captured at 1440 × 900 and at the minimum size 1100 × 700, light and dark (before/after images below). |
-| Test with users (Double Diamond *Deliver*) | **Open** | Not possible from here. A ready-to-run test plan with tasks and measures is in §7. |
+| Learnability | ✔ | Setup follows the physical problem, not the solver's code structure. Labels in plain language, with derived values (pd, E/N, dt, run time) under the fields. The model picture on Home explains the set-up at a glance. Help, quick start and user guide are updated. |
+| All scientific capabilities kept | ✔ | Automated check: every one of the 208 settings is editable in All settings. Menus and shortcuts are unchanged, and no solver file was touched. |
+| Method follows the three references | ✔ | Nielsen heuristics: full 10-heuristic scorecard (§3). Progressive disclosure: two levels, information scent (§4). Double Diamond: two iterations, alternatives compared (§2). |
+| Evidence from the real screens | ✔ | Home, Model and Simulate captured at 1440 × 900 and at the minimum size 1100 × 700, light and dark (before/after images below). |
+| Test with users (Double Diamond *Deliver*) | **Open** | The next step; a ready-to-run test plan with tasks and measures is in §7. |
 
 ## 2 · Process – Double Diamond, two iterations
 
 | Phase | Iteration 1 | Iteration 2 |
 |---|---|---|
-| **Discover** | Screenshots of every page. A heuristic walkthrough of the first-use task *open a case → change a setting → run → look at the result*. Counts of controls, highlighted buttons and words per page. | Re-check of iteration 1 against each point of the feedback (§1). Five points were only partly met; the Model page had barely changed (controls 26 → 24). |
+| **Discover** | Screenshots of every page. A heuristic walkthrough of the first-use task *open a case → change a setting → run → look at the result*. Counts of controls, highlighted buttons and words per page. | Re-check of iteration 1 against each review goal (§1). Five points were only partly met; the Model page had barely changed (controls 26 → 24). |
 | **Define** | 13 findings (F1–F13, §3), each tied to a heuristic and a concept. | 3 new findings: F14 the Model page is ordered by the solver's structure, not the user's task; F15 three equal panes and a 19-block tree still compete; F16 every plot shows 6 tool icons. |
 | **Develop** | Options per finding. The Model page got one global *Essentials / All settings* filter over the same tree. | Three Model-page alternatives (below); C was chosen. |
 | **Deliver** | Implemented and validated. | Implemented, validated, measured (§5–6). Next: user test (§7). |
